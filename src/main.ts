@@ -18,137 +18,138 @@ type Dashboard = {
 const app = document.querySelector<HTMLElement>('#app')!;
 
 app.innerHTML = `
-  <div class="dashboard">
-    <section class="hero" aria-label="Clock">
-      <p class="eyebrow" id="greeting">GOOD EVENING</p>
-      <div class="clock"><span id="clock-main">--:--</span><span class="seconds" id="clock-seconds">--</span></div>
-      <p class="date" id="date">—</p>
-    </section>
+  <div class="shell">
+    <section class="home-view view active" id="home-view" aria-label="Home display">
+      <div class="left-column">
+        <section class="clock-block" aria-label="Clock">
+          <p class="eyebrow" id="greeting">GOOD EVENING</p>
+          <div class="clock"><span id="clock-main">--:--</span><span class="clock-side"><span id="period">--</span><span id="clock-seconds">--</span></span></div>
+          <p class="date" id="date">—</p>
+        </section>
 
-    <section class="panel agenda">
-      <header><p class="eyebrow">UP NEXT</p><span class="status" id="google-status"></span></header>
-      <div id="events" class="event-list skeleton-lines"></div>
-    </section>
+        <section class="weather-block" aria-label="Today's weather">
+          <div class="weather-heading"><span id="weather-icon">○</span><strong id="temperature">--°</strong><div><p id="condition">—</p><span id="range">—</span></div></div>
+          <div class="weather-details">
+            <span><small>RAIN</small><strong id="precip">—</strong></span>
+            <span><small>UV</small><strong id="uv">—</strong></span>
+            <span><small>WIND</small><strong id="wind">—</strong></span>
+          </div>
+        </section>
 
-    <section class="panel weather">
-      <header><p class="eyebrow">TODAY · <span id="weather-location">—</span></p></header>
-      <div class="weather-main"><span class="weather-icon" id="weather-icon">○</span><strong id="temperature">--°</strong><div><p id="condition">—</p><span id="range">—</span></div></div>
-      <div class="metrics">
-        <div><span>PRECIP.</span><strong id="precip">—</strong></div>
-        <div><span>UV INDEX</span><strong id="uv">—</strong></div>
-        <div><span>WIND</span><strong id="wind">—</strong></div>
+        <section class="up-next" aria-label="Up next">
+          <p class="eyebrow">UP NEXT</p>
+          <div id="next-item"><p class="loading">Checking your day…</p></div>
+        </section>
       </div>
+
+      <section class="spotify-stage" aria-label="Now playing">
+        <p class="eyebrow now-label">NOW PLAYING</p>
+        <div class="disc" id="record"><img id="artwork" alt="Album artwork" /><span class="disc-hole"></span></div>
+        <div class="track-info">
+          <strong id="track-title">Nothing playing</strong>
+          <p id="track-artist">Spotify</p>
+          <div class="progress"><span id="progress"></span></div>
+          <div class="track-time"><span id="elapsed">0:00</span><span id="duration">0:00</span></div>
+        </div>
+        <a class="connect" id="spotify-connect" href="/auth/spotify">CONNECT SPOTIFY</a>
+      </section>
     </section>
 
-    <section class="panel tasks">
-      <header><p class="eyebrow">TASKS</p><span class="count" id="task-count">0</span></header>
-      <div id="tasks" class="task-list skeleton-lines"></div>
+    <section class="organizer-view view" id="organizer-view" aria-label="Calendar and tasks">
+      <header class="organizer-header"><div><p class="eyebrow">YOUR DAY</p><h1>Calendar <span>&</span> Tasks</h1></div><span class="status" id="google-status"></span></header>
+      <div class="organizer-grid"><section><h2>Upcoming</h2><div id="events"></div></section><section><h2>Open tasks <span id="task-count">0</span></h2><div id="tasks"></div></section></div>
     </section>
 
-    <section class="panel now-playing">
-      <div class="record-wrap"><div class="record" id="record"><img id="artwork" alt="Album artwork" /><i></i></div></div>
-      <div class="track-copy">
-        <p class="eyebrow">NOW PLAYING</p>
-        <strong id="track-title">Nothing playing</strong>
-        <p id="track-artist">Spotify</p>
-        <div class="progress"><span id="progress"></span></div>
-      </div>
-      <a class="connect" id="spotify-connect" href="/auth/spotify">CONNECT</a>
-    </section>
+    <nav class="view-switcher" aria-label="Display views">
+      <button class="selected" data-view="home-view" aria-label="Home view"></button>
+      <button data-view="organizer-view" aria-label="Calendar and tasks view"></button>
+    </nav>
+    <p class="demo-note" id="demo-note"></p>
   </div>
-  <p class="demo-note" id="demo-note"></p>
 `;
 
 function tick() {
   const now = new Date();
-  document.querySelector('#clock-main')!.textContent = new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric', minute: '2-digit', hour12: true
-  }).format(now).replace(/\s[AP]M$/, '');
+  const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(now);
+  document.querySelector('#clock-main')!.textContent = `${parts.find(p => p.type === 'hour')?.value}:${parts.find(p => p.type === 'minute')?.value}`;
+  document.querySelector('#period')!.textContent = parts.find(p => p.type === 'dayPeriod')?.value || '';
   document.querySelector('#clock-seconds')!.textContent = new Intl.DateTimeFormat('en-US', { second: '2-digit' }).format(now);
-  document.querySelector('#date')!.textContent = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric'
-  }).format(now).toUpperCase();
+  document.querySelector('#date')!.textContent = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now).toUpperCase();
 }
-
-const timeLabel = (event: CalendarEvent) => event.allDay
-  ? 'ALL DAY'
-  : new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date(event.start));
 
 function render(data: Dashboard) {
   document.querySelector('#greeting')!.textContent = data.greeting.toUpperCase();
-  document.querySelector('#google-status')!.innerHTML = data.googleConnected
-    ? '<span class="dot"></span> SYNCED'
-    : '<a href="/auth/google">CONNECT GOOGLE</a>';
-  document.querySelector('#events')!.classList.remove('skeleton-lines');
-  document.querySelector('#events')!.innerHTML = data.events.length ? data.events.map((event, index) => `
-    <article class="event"><time>${timeLabel(event)}</time><span class="rule rule-${index % 3}"></span><div><strong>${escapeHtml(event.title)}</strong><p>${event.allDay ? 'All day' : duration(event)}</p></div></article>
-  `).join('') : '<p class="empty">Nothing else on the calendar.</p>';
+  document.querySelector('#google-status')!.innerHTML = data.googleConnected ? '<span class="dot"></span> SYNCED' : '<a href="/auth/google">CONNECT GOOGLE</a>';
+  renderOrganizer(data.events, data.tasks);
+  renderNext(data.events, data.tasks);
+  renderWeather(data.weather);
+  renderPlayback(data.playback);
+  document.querySelector('#demo-note')!.textContent = data.demo ? 'DEMO' : '';
+}
 
-  document.querySelector('#tasks')!.classList.remove('skeleton-lines');
-  document.querySelector('#task-count')!.textContent = String(data.tasks.length);
-  document.querySelector('#tasks')!.innerHTML = data.tasks.length ? data.tasks.map(task => `
-    <article class="task"><span class="checkbox"></span><div><strong>${escapeHtml(task.title)}</strong>${task.due ? `<p>${formatDue(task.due)}</p>` : ''}</div></article>
-  `).join('') : '<p class="empty">No open tasks.</p>';
+function renderNext(events: CalendarEvent[], tasks: Task[]) {
+  const now = Date.now();
+  const candidates = [
+    ...events.filter(e => !e.allDay && new Date(e.start).getTime() >= now).map(e => ({ type: 'EVENT', title: e.title, at: new Date(e.start), detail: durationLabel(e) })),
+    ...tasks.filter(t => t.due && new Date(t.due).getTime() >= now).map(t => ({ type: 'REMINDER', title: t.title, at: new Date(t.due!), detail: 'Task' }))
+  ].sort((a, b) => a.at.getTime() - b.at.getTime());
+  const next = candidates[0];
+  document.querySelector('#next-item')!.innerHTML = next ? `
+    <div class="next-time"><strong>${formatTime(next.at)}</strong><span>${relativeDay(next.at)}</span></div>
+    <div class="next-copy"><small>${next.type}</small><strong>${escapeHtml(next.title)}</strong><span>${next.detail}</span></div>
+  ` : '<p class="nothing-next">Your day is clear.</p>';
+}
 
-  const weather = data.weather;
-  document.querySelector('#weather-location')!.textContent = weather.location.toUpperCase();
+function renderWeather(weather: Weather) {
   document.querySelector('#temperature')!.textContent = `${Math.round(weather.temperature)}°`;
   document.querySelector('#condition')!.textContent = weather.condition;
-  document.querySelector('#range')!.textContent = `H ${Math.round(weather.high)}° · L ${Math.round(weather.low)}°`;
+  document.querySelector('#range')!.textContent = `${weather.location} · H ${Math.round(weather.high)}° / L ${Math.round(weather.low)}°`;
   document.querySelector('#precip')!.textContent = `${Math.round(weather.precipitation)}%`;
-  document.querySelector('#uv')!.textContent = `${Math.round(weather.uv)} · ${uvLabel(weather.uv)}`;
-  document.querySelector('#wind')!.textContent = `${weather.windDirection} ${Math.round(weather.wind)} mph`;
+  document.querySelector('#uv')!.textContent = `${Math.round(weather.uv)} ${uvLabel(weather.uv)}`;
+  document.querySelector('#wind')!.textContent = `${weather.windDirection} ${Math.round(weather.wind)}`;
   document.querySelector('#weather-icon')!.textContent = weatherSymbol(weather.condition);
+}
 
-  const playing = data.playback;
-  const record = document.querySelector('#record')!;
-  record.classList.toggle('spinning', playing.isPlaying);
+function renderPlayback(playing: Playback) {
+  document.querySelector('#record')!.classList.toggle('spinning', playing.isPlaying);
   const artwork = document.querySelector<HTMLImageElement>('#artwork')!;
-  if (playing.artwork) artwork.src = playing.artwork;
+  if (playing.artwork) { artwork.src = playing.artwork; artwork.hidden = false; } else { artwork.removeAttribute('src'); artwork.hidden = true; }
   document.querySelector('#track-title')!.textContent = playing.title || 'Nothing playing';
   document.querySelector('#track-artist')!.textContent = playing.artist || 'Spotify';
   document.querySelector<HTMLElement>('#progress')!.style.width = `${playing.durationMs ? (playing.progressMs / playing.durationMs) * 100 : 0}%`;
+  document.querySelector('#elapsed')!.textContent = formatDuration(playing.progressMs);
+  document.querySelector('#duration')!.textContent = formatDuration(playing.durationMs);
   document.querySelector<HTMLElement>('#spotify-connect')!.hidden = playing.connected;
-  document.querySelector('#demo-note')!.textContent = data.demo ? 'DEMO DATA · CONNECT ACCOUNTS WHEN THIS MOVES TO THE DISPLAY LAPTOP' : '';
 }
 
-function duration(event: CalendarEvent) {
-  if (!event.end) return '';
-  const minutes = Math.round((new Date(event.end).getTime() - new Date(event.start).getTime()) / 60000);
-  return minutes >= 60 ? `${Math.floor(minutes / 60)} hr${minutes >= 120 ? 's' : ''}` : `${minutes} min`;
+function renderOrganizer(events: CalendarEvent[], tasks: Task[]) {
+  document.querySelector('#events')!.innerHTML = events.length ? events.map(event => `<article class="event"><time>${event.allDay ? 'ALL DAY' : formatTime(new Date(event.start))}</time><div><strong>${escapeHtml(event.title)}</strong><p>${event.allDay ? 'All day' : durationLabel(event)}</p></div></article>`).join('') : '<p class="empty">Nothing on the calendar.</p>';
+  document.querySelector('#task-count')!.textContent = String(tasks.length);
+  document.querySelector('#tasks')!.innerHTML = tasks.length ? tasks.map(task => `<article class="task"><span class="checkbox"></span><div><strong>${escapeHtml(task.title)}</strong>${task.due ? `<p>${formatDue(task.due)}</p>` : ''}</div></article>`).join('') : '<p class="empty">No open tasks.</p>';
 }
-function formatDue(value: string) {
-  const due = new Date(value);
-  const today = new Date();
-  const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  return value.slice(0, 10) === localDate
-    ? 'Due today'
-    : `Due ${new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(due)}`;
-}
-function uvLabel(uv: number) { return uv < 3 ? 'Low' : uv < 6 ? 'Moderate' : uv < 8 ? 'High' : 'Very high'; }
-function weatherSymbol(condition: string) {
-  const c = condition.toLowerCase();
-  if (c.includes('rain') || c.includes('drizzle')) return '◒';
-  if (c.includes('cloud') || c.includes('fog')) return '◑';
-  if (c.includes('snow')) return '✳';
-  return '☼';
-}
-function escapeHtml(value: string) {
-  return value.replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]!);
-}
+
+document.querySelectorAll<HTMLButtonElement>('.view-switcher button').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+  document.querySelectorAll('.view-switcher button').forEach(item => item.classList.remove('selected'));
+  document.querySelector(`#${button.dataset.view}`)!.classList.add('active');
+  button.classList.add('selected');
+}));
+
+function formatTime(date: Date) { return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(date); }
+function relativeDay(date: Date) { const today = new Date(); return date.toDateString() === today.toDateString() ? 'TODAY' : new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date).toUpperCase(); }
+function durationLabel(event: CalendarEvent) { if (!event.end) return ''; const minutes = Math.round((new Date(event.end).getTime() - new Date(event.start).getTime()) / 60000); return minutes >= 60 ? `${Math.floor(minutes / 60)} hr${minutes >= 120 ? 's' : ''}` : `${minutes} min`; }
+function formatDuration(ms: number) { const seconds = Math.floor(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }
+function formatDue(value: string) { const due = new Date(value); const today = new Date(); const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`; return value.slice(0, 10) === localDate ? 'Due today' : `Due ${new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(due)}`; }
+function uvLabel(uv: number) { return uv < 3 ? 'LOW' : uv < 6 ? 'MOD' : uv < 8 ? 'HIGH' : 'V.HIGH'; }
+function weatherSymbol(condition: string) { const c = condition.toLowerCase(); if (c.includes('rain') || c.includes('drizzle')) return '◒'; if (c.includes('cloud') || c.includes('fog')) return '◑'; if (c.includes('snow')) return '✳'; return '☼'; }
+function escapeHtml(value: string) { return value.replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]!); }
 
 async function load() {
   try {
     const response = await fetch('/api/dashboard');
     if (!response.ok) throw new Error(`Dashboard returned ${response.status}`);
     render(await response.json() as Dashboard);
-  } catch (error) {
-    document.querySelector('#demo-note')!.textContent = 'DISPLAY SERVER OFFLINE · START WITH NPM RUN DEV';
-    console.error(error);
-  }
+  } catch (error) { document.querySelector('#demo-note')!.textContent = 'OFFLINE'; console.error(error); }
 }
 
-tick();
-setInterval(tick, 1000);
-load();
-setInterval(load, 60_000);
+tick(); setInterval(tick, 1000); load(); setInterval(load, 60_000);

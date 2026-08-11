@@ -15,8 +15,8 @@ test('renders all dashboard regions with populated data', async ({ page }) => {
   await expect(page.locator('.task')).toHaveCount(3);
   await expect(page.locator('#temperature')).toHaveText(/^-?\d+°$/);
   await expect(page.locator('#precip')).toHaveText(/^\d+%$/);
-  await expect(page.locator('#uv')).toContainText('·');
-  await expect(page.locator('#wind')).toContainText('mph');
+  await expect(page.locator('#uv')).toHaveText(/^\d+ (LOW|MOD|HIGH|V\.HIGH)$/);
+  await expect(page.locator('#wind')).toHaveText(/^(N|NE|E|SE|S|SW|W|NW) \d+$/);
 
   await expect(page.locator('#track-title')).toHaveText('Dreams');
   await expect(page.locator('#record')).toHaveClass(/spinning/);
@@ -29,7 +29,7 @@ test('clock seconds advance without reloading', async ({ page }) => {
   await expect(seconds).not.toHaveText(first!, { timeout: 2_500 });
 });
 
-test('dashboard has no unintended horizontal or vertical overflow', async ({ page }) => {
+test('dashboard has no unintended overflow at its target size', async ({ page }, testInfo) => {
   const dimensions = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
@@ -37,7 +37,20 @@ test('dashboard has no unintended horizontal or vertical overflow', async ({ pag
     clientHeight: document.documentElement.clientHeight
   }));
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
-  expect(dimensions.scrollHeight).toBe(dimensions.clientHeight);
+  if (testInfo.project.name === 'wall-display') expect(dimensions.scrollHeight).toBe(dimensions.clientHeight);
+});
+
+test('Spotify owns a 1080 square and organizer content lives on the second view', async ({ page }, testInfo) => {
+  if (testInfo.project.name === 'wall-display') {
+    const box = await page.locator('.spotify-stage').boundingBox();
+    expect(box?.width).toBe(1080);
+    expect(box?.height).toBe(1080);
+  }
+  await expect(page.locator('#organizer-view')).not.toHaveClass(/active/);
+  await page.getByRole('button', { name: 'Calendar and tasks view' }).click();
+  await expect(page.locator('#organizer-view')).toHaveClass(/active/);
+  await expect(page.locator('.event')).toHaveCount(4);
+  await expect(page.locator('.task')).toHaveCount(3);
 });
 
 test('unconfigured OAuth links fail safely back to the display', async ({ page }) => {

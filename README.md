@@ -1,6 +1,6 @@
 # Donna Display
 
-A calm, glanceable 1920×1080 wall display with a clock, Google Calendar, Google Tasks, daily weather, and Spotify now-playing artwork.
+A calm, glanceable 1920×1080 wall display. The borderless home view pairs time, weather, and one “up next” item with a dedicated 1080×1080 Spotify disc; full Calendar and Tasks lists live on a secondary view.
 
 ## Run locally
 
