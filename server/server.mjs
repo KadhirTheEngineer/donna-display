@@ -126,6 +126,10 @@ async function dashboard(res) {
   const [forecast, google, playback] = await Promise.all([weather(), googleData(googleToken).catch(() => ({ events: demoEvents(), tasks: demoTasks() })), spotifyData(spotifyToken)]);
   send(res, 200, { greeting: process.env.DISPLAY_NAME || greeting(), demo: !googleToken || !spotifyToken, googleConnected: Boolean(googleToken), spotifyConnected: Boolean(spotifyToken), ...google, weather: forecast, playback });
 }
+async function playback(res) {
+  const spotifyToken = await token('spotify');
+  send(res, 200, await spotifyData(spotifyToken));
+}
 function greeting() { const hour = new Date().getHours(); return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'; }
 function send(res, status, value) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)); }
 function redirect(res, location) { res.writeHead(302, { location }); res.end(); }
@@ -143,6 +147,7 @@ createServer(async (req, res) => {
   try {
     const url = new URL(req.url, baseUrl); const parts = url.pathname.split('/').filter(Boolean);
     if (url.pathname === '/api/dashboard') return await dashboard(res);
+    if (url.pathname === '/api/playback') return await playback(res);
     if (parts[0] === 'auth' && ['google', 'spotify'].includes(parts[1])) return parts[2] === 'callback' ? await oauthCallback(parts[1], url, res) : await oauthStart(parts[1], res);
     return staticFile(url.pathname, res);
   } catch (error) { console.error(error); send(res, 500, { error: 'Unexpected display server error.' }); }

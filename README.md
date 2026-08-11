@@ -48,6 +48,6 @@ The app only requests current-playback read scopes. The record spins only while 
 ## Display notes
 
 - The layout is optimized for 16:9 at 1920×1080 and has a narrower-screen fallback.
-- Data refreshes once per minute; the clock updates every second.
+- Weather, calendar, and tasks refresh once per minute. Spotify refreshes every five seconds, while track progress advances locally every second.
 - Keep `.env` and `.data/oauth.json` private. Never commit either file.
 - The Google Font is fetched from the internet. For a completely offline deployment, download and self-host DM Mono and Manrope.

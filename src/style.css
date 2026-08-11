@@ -32,9 +32,14 @@ html, body, #app, .shell { width: 100%; height: 100%; margin: 0; overflow: hidde
 .next-copy strong { font-size: clamp(20px, 1.42vw, 27px); font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .next-copy span { color: #777f7a; font: 400 clamp(12px, .76vw, 15px)/1 DM Mono, monospace; }
 .nothing-next, .loading { color: #8b918d; margin: 0; font-size: 18px; }
-.spotify-stage { width: min(56.25vw, 1080px); height: min(100vh, 1080px); position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; background: #000; }
-.now-label { position: absolute; top: 7.5vh; left: 50%; transform: translateX(-50%); }
-.disc { width: min(62vh, 34.875vw, 670px); aspect-ratio: 1; position: relative; border-radius: 50%; padding: 7.5%; background: repeating-radial-gradient(circle, #090909 0 2px, #1b1b1b 3px 4px, #080808 5px 7px); box-shadow: 0 2.2vh 5vh #000, 0 0 0 1px #262626; }
+.track-info { width: 100%; margin-top: 4.5vh; text-align: left; }
+.track-info > .eyebrow { margin-bottom: 1.6vh; }
+.track-heading { display: flex; align-items: center; justify-content: space-between; gap: 2vw; }
+.track-heading > div { min-width: 0; }
+.track-heading strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(21px, 1.45vw, 28px); font-weight: 600; }
+.track-heading p { margin: .7vh 0 0; color: #858d88; font-size: clamp(14px, .92vw, 18px); }
+.spotify-stage { width: min(56.25vw, 1080px); height: min(100vh, 1080px); position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #000; }
+.disc { width: min(78vh, 43.875vw, 842px); aspect-ratio: 1; position: relative; border-radius: 50%; padding: 7.5%; background: repeating-radial-gradient(circle, #090909 0 2px, #1b1b1b 3px 4px, #080808 5px 7px); box-shadow: 0 2.2vh 5vh #000, 0 0 0 1px #262626; }
 .disc::before, .disc::after { content: ''; position: absolute; border-radius: 50%; pointer-events: none; }
 .disc::before { inset: 2.5%; border: 1px solid #292929; box-shadow: inset 0 0 40px #0009; }
 .disc::after { inset: 30%; border: 1px solid #ffffff16; }
@@ -42,12 +47,9 @@ html, body, #app, .shell { width: 100%; height: 100%; margin: 0; overflow: hidde
 .disc-hole { position: absolute; inset: 46.5%; z-index: 2; border-radius: 50%; background: #000; box-shadow: 0 0 0 5px #d5d3c9, 0 0 0 8px #111; }
 .disc.spinning { animation: spin 12s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.track-info { width: min(33vw, 630px); margin-top: 5vh; text-align: center; }
-.track-info > strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(22px, 1.7vw, 33px); font-weight: 600; }
-.track-info > p { margin: .8vh 0 2.6vh; color: #777e79; font-size: clamp(12px, .86vw, 17px); }
-.progress { height: 2px; background: #242724; }.progress span { display: block; height: 100%; background: #a9bcaf; }
+.progress { height: 3px; margin-top: 2.2vh; background: #242724; }.progress span { display: block; height: 100%; background: #a9bcaf; }
 .track-time { display: flex; justify-content: space-between; margin-top: .7vh; color: #4f5551; font: 400 9px DM Mono, monospace; }
-.connect { margin-top: 2.5vh; border: 1px solid #445048; padding: .9em 1.2em; color: #a5baad; text-decoration: none; font: 500 10px DM Mono, monospace; letter-spacing: .14em; }
+.connect { flex: 0 0 auto; border: 1px solid #445048; padding: .9em 1.2em; color: #a5baad; text-decoration: none; font: 500 10px DM Mono, monospace; letter-spacing: .14em; }
 .organizer-view { padding: 8vh 8vw 10vh; grid-template-rows: auto 1fr; }
 .organizer-header { display: flex; justify-content: space-between; align-items: flex-end; }
 .organizer-header h1 { margin: 1.2vh 0 0; font-size: clamp(42px, 4vw, 76px); line-height: 1; letter-spacing: -.05em; }.organizer-header h1 span { color: #6d7d73; font-weight: 400; }
@@ -59,5 +61,5 @@ html, body, #app, .shell { width: 100%; height: 100%; margin: 0; overflow: hidde
 .view-switcher { position: fixed; bottom: 3vh; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; z-index: 10; }.view-switcher button { width: 21px; height: 2px; padding: 0; border: 0; background: #292c2a; cursor: pointer; }.view-switcher button.selected { background: #96aa9d; }
 .demo-note { position: fixed; right: 2vw; bottom: 2vh; margin: 0; color: #222522; font: 500 8px DM Mono, monospace; letter-spacing: .18em; }
 .empty { color: #555b57; font: 400 12px DM Mono, monospace; }
-@media (max-width: 1200px), (max-aspect-ratio: 4/3) { html, body, #app, .shell { overflow: auto; }.home-view { min-height: 100vh; height: auto; grid-template-columns: 1fr; }.left-column { height: auto; min-height: 90vh; }.spotify-stage { width: 100%; height: 100vh; }.disc { width: min(65vw, 62vh); }.track-info { width: min(70vw, 630px); }.organizer-view { min-height: 100vh; }.organizer-grid { gap: 5vw; } }
+@media (max-width: 1200px), (max-aspect-ratio: 4/3) { html, body, #app, .shell { overflow: auto; }.home-view { min-height: 100vh; height: auto; grid-template-columns: 1fr; }.left-column { height: auto; min-height: 100vh; }.spotify-stage { width: 100%; height: 100vh; }.disc { width: min(82vw, 78vh); }.organizer-view { min-height: 100vh; }.organizer-grid { gap: 5vw; } }
 @media (prefers-reduced-motion: reduce) { .disc.spinning { animation: none; } }

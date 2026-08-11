@@ -16,6 +16,8 @@ type Dashboard = {
 };
 
 const app = document.querySelector<HTMLElement>('#app')!;
+let playbackSnapshot: Playback | null = null;
+let playbackReceivedAt = 0;
 
 app.innerHTML = `
   <div class="shell">
@@ -40,18 +42,17 @@ app.innerHTML = `
           <p class="eyebrow">UP NEXT</p>
           <div id="next-item"><p class="loading">Checking your day…</p></div>
         </section>
+
+        <section class="track-info" aria-label="Now playing details">
+          <p class="eyebrow">NOW PLAYING</p>
+          <div class="track-heading"><div><strong id="track-title">Nothing playing</strong><p id="track-artist">Spotify</p></div><a class="connect" id="spotify-connect" href="/auth/spotify">CONNECT</a></div>
+          <div class="progress"><span id="progress"></span></div>
+          <div class="track-time"><span id="elapsed">0:00</span><span id="duration">0:00</span></div>
+        </section>
       </div>
 
       <section class="spotify-stage" aria-label="Now playing">
-        <p class="eyebrow now-label">NOW PLAYING</p>
         <div class="disc" id="record"><img id="artwork" alt="Album artwork" /><span class="disc-hole"></span></div>
-        <div class="track-info">
-          <strong id="track-title">Nothing playing</strong>
-          <p id="track-artist">Spotify</p>
-          <div class="progress"><span id="progress"></span></div>
-          <div class="track-time"><span id="elapsed">0:00</span><span id="duration">0:00</span></div>
-        </div>
-        <a class="connect" id="spotify-connect" href="/auth/spotify">CONNECT SPOTIFY</a>
       </section>
     </section>
 
@@ -75,6 +76,7 @@ function tick() {
   document.querySelector('#period')!.textContent = parts.find(p => p.type === 'dayPeriod')?.value || '';
   document.querySelector('#clock-seconds')!.textContent = new Intl.DateTimeFormat('en-US', { second: '2-digit' }).format(now);
   document.querySelector('#date')!.textContent = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now).toUpperCase();
+  updatePlaybackProgress();
 }
 
 function render(data: Dashboard) {
@@ -111,6 +113,8 @@ function renderWeather(weather: Weather) {
 }
 
 function renderPlayback(playing: Playback) {
+  playbackSnapshot = playing;
+  playbackReceivedAt = Date.now();
   document.querySelector('#record')!.classList.toggle('spinning', playing.isPlaying);
   const artwork = document.querySelector<HTMLImageElement>('#artwork')!;
   if (playing.artwork) { artwork.src = playing.artwork; artwork.hidden = false; } else { artwork.removeAttribute('src'); artwork.hidden = true; }
@@ -120,6 +124,14 @@ function renderPlayback(playing: Playback) {
   document.querySelector('#elapsed')!.textContent = formatDuration(playing.progressMs);
   document.querySelector('#duration')!.textContent = formatDuration(playing.durationMs);
   document.querySelector<HTMLElement>('#spotify-connect')!.hidden = playing.connected;
+}
+
+function updatePlaybackProgress() {
+  if (!playbackSnapshot) return;
+  const added = playbackSnapshot.isPlaying ? Date.now() - playbackReceivedAt : 0;
+  const progress = Math.min(playbackSnapshot.progressMs + added, playbackSnapshot.durationMs);
+  document.querySelector<HTMLElement>('#progress')!.style.width = `${playbackSnapshot.durationMs ? (progress / playbackSnapshot.durationMs) * 100 : 0}%`;
+  document.querySelector('#elapsed')!.textContent = formatDuration(progress);
 }
 
 function renderOrganizer(events: CalendarEvent[], tasks: Task[]) {
@@ -152,4 +164,11 @@ async function load() {
   } catch (error) { document.querySelector('#demo-note')!.textContent = 'OFFLINE'; console.error(error); }
 }
 
-tick(); setInterval(tick, 1000); load(); setInterval(load, 60_000);
+async function loadPlayback() {
+  try {
+    const response = await fetch('/api/playback');
+    if (response.ok) renderPlayback(await response.json() as Playback);
+  } catch (error) { console.error('Spotify refresh failed', error); }
+}
+
+tick(); setInterval(tick, 1000); load(); setInterval(load, 60_000); setInterval(loadPlayback, 5_000);

@@ -71,3 +71,15 @@ test('dashboard API returns the expected contract', async ({ request }) => {
     playback: { title: 'Dreams', isPlaying: true }
   });
 });
+
+test('Spotify has a dedicated fast-refresh API', async ({ request }) => {
+  const response = await request.get('/api/playback');
+  expect(response.ok()).toBeTruthy();
+  expect(await response.json()).toMatchObject({
+    connected: false,
+    isPlaying: true,
+    title: 'Dreams',
+    progressMs: expect.any(Number),
+    durationMs: expect.any(Number)
+  });
+});
