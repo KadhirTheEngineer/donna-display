@@ -48,6 +48,6 @@ The app only requests current-playback read scopes. The record spins only while 
 ## Display notes
 
 - The layout is optimized for 16:9 at 1920×1080 and has a narrower-screen fallback.
-- Weather, calendar, and tasks refresh once per minute. Spotify refreshes every five seconds, while track progress advances locally every second.
+- Weather, calendar, and tasks refresh once per minute. Spotify refreshes every two seconds, while track progress advances locally every second. If Spotify rate-limits requests, the display automatically honors its `Retry-After` delay.
 - Keep `.env` and `.data/oauth.json` private. Never commit either file.
 - The Google Font is fetched from the internet. For a completely offline deployment, download and self-host DM Mono and Manrope.

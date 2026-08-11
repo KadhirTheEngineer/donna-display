@@ -165,10 +165,17 @@ async function load() {
 }
 
 async function loadPlayback() {
+  let nextRefresh = 2_000;
   try {
     const response = await fetch('/api/playback');
-    if (response.ok) renderPlayback(await response.json() as Playback);
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get('retry-after') || 5);
+      nextRefresh = Math.max(retryAfter * 1_000, 2_000);
+    } else if (response.ok) {
+      renderPlayback(await response.json() as Playback);
+    }
   } catch (error) { console.error('Spotify refresh failed', error); }
+  window.setTimeout(loadPlayback, nextRefresh);
 }
 
-tick(); setInterval(tick, 1000); load(); setInterval(load, 60_000); setInterval(loadPlayback, 5_000);
+tick(); setInterval(tick, 1000); load(); setInterval(load, 60_000); window.setTimeout(loadPlayback, 2_000);

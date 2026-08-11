@@ -111,10 +111,15 @@ async function googleData(accessToken) {
     tasks: taskGroups.flatMap(g => g.items || []).filter(t => t.status !== 'completed').slice(0, 6).map(t => ({ id: t.id, title: t.title, due: t.due }))
   };
 }
-async function spotifyData(accessToken) {
+async function spotifyData(accessToken, propagateRateLimit = false) {
   const fallback = { connected: Boolean(accessToken), isPlaying: true, title: 'Dreams', artist: 'Fleetwood Mac', album: 'Rumours', artwork: 'https://i.scdn.co/image/ab67616d0000b273e52a59a28efa4773dd2bfe1b', progressMs: 126000, durationMs: 257000 };
   if (!accessToken) return fallback;
   const response = await fetch('https://api.spotify.com/v1/me/player/currently-playing', { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (response.status === 429 && propagateRateLimit) {
+    const error = new Error('Spotify rate limit reached');
+    error.retryAfter = response.headers.get('retry-after') || '5';
+    throw error;
+  }
   if (response.status === 204) return { ...fallback, connected: true, isPlaying: false, title: 'Nothing playing', artist: 'Spotify', artwork: '' };
   if (!response.ok) return fallback;
   const value = await response.json(), item = value.item;
@@ -128,7 +133,15 @@ async function dashboard(res) {
 }
 async function playback(res) {
   const spotifyToken = await token('spotify');
-  send(res, 200, await spotifyData(spotifyToken));
+  try {
+    send(res, 200, await spotifyData(spotifyToken, true));
+  } catch (error) {
+    if (error.retryAfter) {
+      res.writeHead(429, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'retry-after': error.retryAfter });
+      return res.end(JSON.stringify({ error: 'Spotify rate limit reached.' }));
+    }
+    throw error;
+  }
 }
 function greeting() { const hour = new Date().getHours(); return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'; }
 function send(res, status, value) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)); }
