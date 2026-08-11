@@ -82,12 +82,12 @@ async function oauthCallback(provider, url, res) {
 }
 
 async function weather() {
-  const latitude = process.env.LATITUDE || '41.8781', longitude = process.env.LONGITUDE || '-87.6298';
+  const latitude = process.env.LATITUDE || '30.2672', longitude = process.env.LONGITUDE || '-97.7431';
   const params = new URLSearchParams({ latitude, longitude, current: 'temperature_2m,weather_code', daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max,wind_speed_10m_max,wind_direction_10m_dominant', temperature_unit: 'fahrenheit', wind_speed_unit: 'mph', timezone: process.env.TIMEZONE || 'auto', forecast_days: '1' });
   try {
     const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`); if (!response.ok) throw new Error();
     const value = await response.json(); const d = value.daily;
-    return { location: process.env.WEATHER_LOCATION || 'Chicago', condition: weatherName(value.current.weather_code), temperature: value.current.temperature_2m, high: d.temperature_2m_max[0], low: d.temperature_2m_min[0], precipitation: d.precipitation_probability_max[0], uv: d.uv_index_max[0], wind: d.wind_speed_10m_max[0], windDirection: compass(d.wind_direction_10m_dominant[0]) };
+    return { location: process.env.WEATHER_LOCATION || 'Austin', condition: weatherName(value.current.weather_code), temperature: value.current.temperature_2m, high: d.temperature_2m_max[0], low: d.temperature_2m_min[0], precipitation: d.precipitation_probability_max[0], uv: d.uv_index_max[0], wind: d.wind_speed_10m_max[0], windDirection: compass(d.wind_direction_10m_dominant[0]) };
   } catch { return { location: 'Weather offline', condition: 'Clear', temperature: 68, high: 73, low: 58, precipitation: 12, uv: 4, wind: 8, windDirection: 'NW' }; }
 }
 function weatherName(code) { if (code === 0) return 'Clear'; if (code <= 3) return 'Partly cloudy'; if (code <= 48) return 'Fog'; if (code <= 57) return 'Drizzle'; if (code <= 67) return 'Rain'; if (code <= 77) return 'Snow'; if (code <= 82) return 'Rain showers'; if (code <= 86) return 'Snow showers'; return 'Thunderstorms'; }
