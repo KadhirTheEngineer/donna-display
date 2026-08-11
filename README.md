@@ -40,7 +40,7 @@ The app requests read-only Calendar and Tasks scopes. Refresh tokens are stored 
 ## Connect Spotify
 
 1. Create an app in the Spotify developer dashboard.
-2. Add `http://localhost:4173/auth/spotify/callback` to its redirect URIs.
+2. Add `http://127.0.0.1:4173/auth/spotify/callback` to its redirect URIs. Spotify rejects `localhost`; the explicit loopback IP is required for an HTTP callback.
 3. Put its client ID and secret in `.env`, restart, then select **Connect** in Now Playing.
 
 The app only requests current-playback read scopes. The record spins only while Spotify says playback is active.

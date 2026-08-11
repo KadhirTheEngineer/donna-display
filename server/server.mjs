@@ -11,6 +11,11 @@ const tokenPath = join(root, '.data', 'oauth.json');
 const baseUrl = `http://localhost:${port}`;
 const states = new Map();
 
+function callbackUrl(provider) {
+  if (provider === 'spotify') return process.env.SPOTIFY_REDIRECT_URI || `http://127.0.0.1:${port}/auth/spotify/callback`;
+  return process.env.GOOGLE_REDIRECT_URI || `${baseUrl}/auth/google/callback`;
+}
+
 const demoEvents = () => {
   const now = new Date();
   const at = (dayOffset, hour, minute = 0) => { const d = new Date(now); d.setDate(d.getDate() + dayOffset); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
@@ -61,14 +66,14 @@ async function oauthStart(provider, res) {
   const config = providerConfig(provider);
   if (!config.clientId || !config.clientSecret) return redirect(res, '/?setup=missing-credentials');
   const state = randomBytes(18).toString('hex'); states.set(state, { provider, expires: Date.now() + 600_000 });
-  const params = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: `${baseUrl}/auth/${provider}/callback`, scope: config.scopes, state, ...config.extra });
+  const params = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: callbackUrl(provider), scope: config.scopes, state, ...config.extra });
   redirect(res, `${config.authUrl}?${params}`);
 }
 async function oauthCallback(provider, url, res) {
   const state = url.searchParams.get('state'); const pending = states.get(state); states.delete(state);
   if (!pending || pending.provider !== provider || pending.expires < Date.now()) return send(res, 400, { error: 'Invalid or expired OAuth state.' });
   const config = providerConfig(provider);
-  const params = new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code') || '', redirect_uri: `${baseUrl}/auth/${provider}/callback`, client_id: config.clientId, client_secret: config.clientSecret });
+  const params = new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code') || '', redirect_uri: callbackUrl(provider), client_id: config.clientId, client_secret: config.clientSecret });
   const response = await fetch(config.tokenUrl, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: params });
   if (!response.ok) return send(res, 502, { error: `Could not connect ${provider}.`, details: await response.text() });
   const granted = await response.json(); const all = await readTokens();
