@@ -29,6 +29,24 @@ test('clock seconds advance without reloading', async ({ page }) => {
   await expect(seconds).not.toHaveText(first!, { timeout: 2_500 });
 });
 
+test('disc freezes at its current angle when playback pauses', async ({ page }) => {
+  const disc = page.locator('#record');
+  await expect(disc).toHaveClass(/spinning/);
+  await page.route('**/api/playback', route => route.abort());
+  await page.waitForTimeout(250);
+  await disc.evaluate(element => element.classList.remove('spinning'));
+  await page.waitForTimeout(50);
+  const pausedAt = await disc.evaluate(element => getComputedStyle(element).transform);
+  expect(pausedAt).not.toBe('none');
+  await page.waitForTimeout(350);
+  const stillAt = await disc.evaluate(element => getComputedStyle(element).transform);
+  expect(stillAt).toBe(pausedAt);
+  await disc.evaluate(element => element.classList.add('spinning'));
+  await page.waitForTimeout(250);
+  const resumedAt = await disc.evaluate(element => getComputedStyle(element).transform);
+  expect(resumedAt).not.toBe(pausedAt);
+});
+
 test('dashboard has no unintended overflow at its target size', async ({ page }, testInfo) => {
   const dimensions = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
