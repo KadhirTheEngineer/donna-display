@@ -62,9 +62,24 @@ function providerConfig(provider) {
   };
 }
 
+function authDiagnostic(provider) {
+  const config = providerConfig(provider);
+  const clientId = String(config.clientId || '').trim();
+  const clientSecret = String(config.clientSecret || '').trim();
+  return {
+    provider,
+    configured: Boolean(clientId && clientSecret),
+    clientIdLooksValid: provider === 'google' ? /^[0-9]+-[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId) : Boolean(clientId),
+    clientIdEnding: clientId ? clientId.slice(-28) : null,
+    clientSecretConfigured: Boolean(clientSecret),
+    redirectUri: callbackUrl(provider)
+  };
+}
+
 async function oauthStart(provider, res) {
   const config = providerConfig(provider);
   if (!config.clientId || !config.clientSecret) return redirect(res, '/?setup=missing-credentials');
+  if (provider === 'google' && !authDiagnostic(provider).clientIdLooksValid) return send(res, 500, { error: 'GOOGLE_CLIENT_ID does not look like a Google OAuth client ID.', diagnostic: authDiagnostic(provider) });
   const state = randomBytes(18).toString('hex'); states.set(state, { provider, expires: Date.now() + 600_000 });
   const params = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: callbackUrl(provider), scope: config.scopes, state, ...config.extra });
   redirect(res, `${config.authUrl}?${params}`);
@@ -161,6 +176,7 @@ createServer(async (req, res) => {
     const url = new URL(req.url, baseUrl); const parts = url.pathname.split('/').filter(Boolean);
     if (url.pathname === '/api/dashboard') return await dashboard(res);
     if (url.pathname === '/api/playback') return await playback(res);
+    if (url.pathname === '/api/auth/google/diagnostic') return send(res, 200, authDiagnostic('google'));
     if (parts[0] === 'auth' && ['google', 'spotify'].includes(parts[1])) return parts[2] === 'callback' ? await oauthCallback(parts[1], url, res) : await oauthStart(parts[1], res);
     return staticFile(url.pathname, res);
   } catch (error) { console.error(error); send(res, 500, { error: 'Unexpected display server error.' }); }

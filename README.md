@@ -37,6 +37,14 @@ npm run test:e2e
 
 The app requests read-only Calendar and Tasks scopes. Refresh tokens are stored locally in `.data/oauth.json`, which is gitignored and created with owner-only permissions.
 
+If Google reports that the OAuth client cannot be found, inspect the safe configuration diagnostic on the display laptop:
+
+```bash
+curl http://localhost:4173/api/auth/google/diagnostic
+```
+
+It reports whether a plausible Google Web client ID and secret were loaded and shows the exact redirect URI, without returning either credential.
+
 ## Connect Spotify
 
 1. Create an app in the Spotify developer dashboard.

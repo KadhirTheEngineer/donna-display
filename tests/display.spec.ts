@@ -122,3 +122,17 @@ test('Spotify has a dedicated fast-refresh API', async ({ request }) => {
     durationMs: expect.any(Number)
   });
 });
+
+test('Google auth diagnostic does not expose the client secret', async ({ request }) => {
+  const response = await request.get('/api/auth/google/diagnostic');
+  expect(response.ok()).toBeTruthy();
+  const diagnostic = await response.json();
+  expect(diagnostic).toMatchObject({
+    provider: 'google',
+    configured: false,
+    clientIdLooksValid: false,
+    clientSecretConfigured: false,
+    redirectUri: 'http://localhost:4173/auth/google/callback'
+  });
+  expect(diagnostic).not.toHaveProperty('clientSecret');
+});

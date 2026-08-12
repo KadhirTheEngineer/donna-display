@@ -89,7 +89,7 @@ function tick() {
   const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(now);
   document.querySelector('#clock-main')!.textContent = `${parts.find(p => p.type === 'hour')?.value}:${parts.find(p => p.type === 'minute')?.value}`;
   document.querySelector('#period')!.textContent = parts.find(p => p.type === 'dayPeriod')?.value || '';
-  document.querySelector('#clock-seconds')!.textContent = new Intl.DateTimeFormat('en-US', { second: '2-digit' }).format(now);
+  document.querySelector('#clock-seconds')!.textContent = String(now.getSeconds()).padStart(2, '0');
   document.querySelector('#date')!.textContent = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now).toUpperCase();
   updatePlaybackProgress();
 }
