@@ -56,7 +56,7 @@ The app only requests current-playback read scopes. The record spins only while 
 ## Display notes
 
 - The layout is optimized for 16:9 at 1920×1080 and has a narrower-screen fallback.
-- Weather, calendar, and tasks refresh once per minute. Spotify refreshes every two seconds, while track progress advances locally every second. If Spotify rate-limits requests, the display automatically honors its `Retry-After` delay.
+- Weather, calendar, and tasks refresh once per minute. Spotify refreshes every five seconds while playing and every two seconds while paused, while track progress advances locally every second. If Spotify rate-limits requests, the display automatically honors its `Retry-After` delay.
 - Navigate with the bottom indicators or keyboard: `1` for Home, `2` for Calendar & Tasks, `3` for Settings, and Left/Right Arrow to move between tabs.
 - The Settings tab includes a locally remembered software brightness control. It dims rendered content but cannot lower the monitor's physical backlight.
 - Keep `.env` and `.data/oauth.json` private. Never commit either file.

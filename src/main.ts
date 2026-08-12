@@ -211,7 +211,9 @@ async function loadPlayback() {
       const retryAfter = Number(response.headers.get('retry-after') || 5);
       nextRefresh = Math.max(retryAfter * 1_000, 2_000);
     } else if (response.ok) {
-      renderPlayback(await response.json() as Playback);
+      const playback = await response.json() as Playback;
+      renderPlayback(playback);
+      nextRefresh = playback.isPlaying ? 5_000 : 2_000;
     }
   } catch (error) { console.error('Spotify refresh failed', error); }
   window.setTimeout(loadPlayback, nextRefresh);
