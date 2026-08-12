@@ -61,11 +61,26 @@ app.innerHTML = `
       <div class="organizer-grid"><section><h2>Upcoming</h2><div id="events"></div></section><section><h2>Open tasks <span id="task-count">0</span></h2><div id="tasks"></div></section></div>
     </section>
 
+    <section class="settings-view view" id="settings-view" aria-label="Display settings">
+      <div class="settings-panel">
+        <p class="eyebrow">DISPLAY SETTINGS</p>
+        <h1>Brightness</h1>
+        <p class="settings-description">Dim the web display for nighttime viewing. This does not change the monitor's physical backlight.</p>
+        <div class="brightness-value"><output id="brightness-value" for="brightness">100</output><span>%</span></div>
+        <input id="brightness" type="range" min="10" max="100" step="5" value="100" aria-label="Display brightness" />
+        <div class="range-labels"><span>DIM</span><span>FULL</span></div>
+        <button id="brightness-reset" type="button">RESET TO 100%</button>
+        <div class="shortcut-help"><p class="eyebrow">KEYBOARD</p><p><kbd>1</kbd> Home <kbd>2</kbd> Calendar & Tasks <kbd>3</kbd> Settings</p><p><kbd>←</kbd> Previous tab <kbd>→</kbd> Next tab</p></div>
+      </div>
+    </section>
+
     <nav class="view-switcher" aria-label="Display views">
-      <button class="selected" data-view="home-view" aria-label="Home view"></button>
-      <button data-view="organizer-view" aria-label="Calendar and tasks view"></button>
+      <button class="selected" data-view="home-view" aria-label="Home view" title="Home (1)"></button>
+      <button data-view="organizer-view" aria-label="Calendar and tasks view" title="Calendar & Tasks (2)"></button>
+      <button data-view="settings-view" aria-label="Settings view" title="Settings (3)"></button>
     </nav>
     <p class="demo-note" id="demo-note"></p>
+    <div class="screen-dimmer" id="screen-dimmer" aria-hidden="true"></div>
   </div>
 `;
 
@@ -140,12 +155,36 @@ function renderOrganizer(events: CalendarEvent[], tasks: Task[]) {
   document.querySelector('#tasks')!.innerHTML = tasks.length ? tasks.map(task => `<article class="task"><span class="checkbox"></span><div><strong>${escapeHtml(task.title)}</strong>${task.due ? `<p>${formatDue(task.due)}</p>` : ''}</div></article>`).join('') : '<p class="empty">No open tasks.</p>';
 }
 
-document.querySelectorAll<HTMLButtonElement>('.view-switcher button').forEach(button => button.addEventListener('click', () => {
+const viewButtons = [...document.querySelectorAll<HTMLButtonElement>('.view-switcher button')];
+function showView(viewId: string) {
   document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-  document.querySelectorAll('.view-switcher button').forEach(item => item.classList.remove('selected'));
-  document.querySelector(`#${button.dataset.view}`)!.classList.add('active');
-  button.classList.add('selected');
-}));
+  viewButtons.forEach(item => item.classList.toggle('selected', item.dataset.view === viewId));
+  document.querySelector(`#${viewId}`)?.classList.add('active');
+}
+viewButtons.forEach(button => button.addEventListener('click', () => showView(button.dataset.view!)));
+
+document.addEventListener('keydown', event => {
+  if ((event.target as HTMLElement).matches('input, button')) return;
+  const activeIndex = viewButtons.findIndex(button => button.classList.contains('selected'));
+  if (event.key === '1') showView('home-view');
+  if (event.key === '2') showView('organizer-view');
+  if (event.key === '3') showView('settings-view');
+  if (event.key === 'ArrowLeft') showView(viewButtons[(activeIndex - 1 + viewButtons.length) % viewButtons.length].dataset.view!);
+  if (event.key === 'ArrowRight') showView(viewButtons[(activeIndex + 1) % viewButtons.length].dataset.view!);
+});
+
+const brightness = document.querySelector<HTMLInputElement>('#brightness')!;
+const brightnessValue = document.querySelector<HTMLOutputElement>('#brightness-value')!;
+function setBrightness(value: number) {
+  const safeValue = Math.min(100, Math.max(10, value));
+  brightness.value = String(safeValue);
+  brightnessValue.value = String(safeValue);
+  document.querySelector<HTMLElement>('#screen-dimmer')!.style.opacity = String(1 - safeValue / 100);
+  localStorage.setItem('display-brightness', String(safeValue));
+}
+setBrightness(Number(localStorage.getItem('display-brightness') || 100));
+brightness.addEventListener('input', () => setBrightness(Number(brightness.value)));
+document.querySelector('#brightness-reset')!.addEventListener('click', () => setBrightness(100));
 
 function formatTime(date: Date) { return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(date); }
 function relativeDay(date: Date) { const today = new Date(); return date.toDateString() === today.toDateString() ? 'TODAY' : new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date).toUpperCase(); }

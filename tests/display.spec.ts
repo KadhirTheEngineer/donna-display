@@ -71,6 +71,27 @@ test('Spotify owns a 1080 square and organizer content lives on the second view'
   await expect(page.locator('.task')).toHaveCount(3);
 });
 
+test('keyboard navigation opens organizer and settings views', async ({ page }) => {
+  await page.keyboard.press('2');
+  await expect(page.locator('#organizer-view')).toHaveClass(/active/);
+  await page.keyboard.press('3');
+  await expect(page.locator('#settings-view')).toHaveClass(/active/);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#home-view')).toHaveClass(/active/);
+});
+
+test('brightness control persists without appearing on home', async ({ page }) => {
+  await expect(page.locator('#brightness')).not.toBeVisible();
+  await page.keyboard.press('3');
+  const slider = page.locator('#brightness');
+  await expect(slider).toBeVisible();
+  await slider.fill('40');
+  await expect(page.locator('#brightness-value')).toHaveText('40');
+  await expect(page.locator('#screen-dimmer')).toHaveCSS('opacity', '0.6');
+  await page.reload();
+  await expect(page.locator('#screen-dimmer')).toHaveCSS('opacity', '0.6');
+});
+
 test('unconfigured OAuth links fail safely back to the display', async ({ page }) => {
   await page.locator('#spotify-connect').click();
   await expect(page).toHaveURL(/\?setup=missing-credentials$/);

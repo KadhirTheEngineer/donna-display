@@ -58,8 +58,18 @@ html, body, #app, .shell { width: 100%; height: 100%; margin: 0; overflow: hidde
 .organizer-grid h2 { margin: 0 0 3vh; color: #777e79; font: 500 12px DM Mono, monospace; letter-spacing: .16em; text-transform: uppercase; }.organizer-grid h2 span { float: right; }
 .event, .task { display: grid; gap: 1.5vw; min-height: 9vh; padding: 1.5vh 0; border-bottom: 1px solid #171817; }.event { grid-template-columns: 5.5vw 1fr; }.task { grid-template-columns: 16px 1fr; }
 .event time { color: #788079; font: 400 12px DM Mono, monospace; }.event strong, .task strong { font-size: clamp(15px, 1vw, 19px); font-weight: 500; }.event p, .task p { margin: .7vh 0 0; color: #555b57; font: 400 10px DM Mono, monospace; }.checkbox { width: 13px; height: 13px; border: 1px solid #626963; border-radius: 50%; margin-top: 3px; }
+.settings-view { place-items: center; padding: 8vh 8vw; }
+.settings-panel { width: min(720px, 70vw); }
+.settings-panel h1 { margin: 2.4vh 0 1.5vh; font-size: clamp(56px, 5vw, 96px); line-height: 1; letter-spacing: -.055em; }
+.settings-description { width: min(600px, 100%); margin: 0; color: #9aa29d; font-size: clamp(18px, 1.25vw, 24px); line-height: 1.55; }
+.brightness-value { display: flex; align-items: baseline; margin: 7vh 0 3vh; font: 500 clamp(82px, 7vw, 134px)/.8 DM Mono, monospace; letter-spacing: -.08em; }.brightness-value span { margin-left: .2em; color: #82978a; font-size: .3em; letter-spacing: 0; }
+#brightness { width: 100%; height: 30px; margin: 0; accent-color: #a9bcaf; cursor: pointer; }
+.range-labels { display: flex; justify-content: space-between; color: #7f8882; font: 500 14px DM Mono, monospace; letter-spacing: .14em; }
+#brightness-reset { margin-top: 4vh; padding: 1em 1.4em; border: 1px solid #526158; background: transparent; color: #b6c9bd; font: 500 14px DM Mono, monospace; letter-spacing: .1em; cursor: pointer; }
+.shortcut-help { margin-top: 8vh; padding-top: 3vh; border-top: 1px solid #202320; }.shortcut-help p:not(.eyebrow) { color: #929a95; font: 400 16px/2.2 DM Mono, monospace; }.shortcut-help kbd { display: inline-block; min-width: 2.2em; margin: 0 .35em 0 .9em; padding: .25em .45em; border: 1px solid #4a514d; color: #d1d5d2; text-align: center; }.shortcut-help kbd:first-child { margin-left: 0; }
 .view-switcher { position: fixed; bottom: 3vh; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; z-index: 10; }.view-switcher button { width: 21px; height: 2px; padding: 0; border: 0; background: #292c2a; cursor: pointer; }.view-switcher button.selected { background: #96aa9d; }
 .demo-note { position: fixed; right: 2vw; bottom: 2vh; margin: 0; color: #222522; font: 500 8px DM Mono, monospace; letter-spacing: .18em; }
+.screen-dimmer { position: fixed; inset: 0; z-index: 20; pointer-events: none; background: #000; opacity: 0; transition: opacity 180ms ease; }
 .empty { color: #555b57; font: 400 12px DM Mono, monospace; }
 @media (max-width: 1200px), (max-aspect-ratio: 4/3) { html, body, #app, .shell { overflow: auto; }.home-view { min-height: 100vh; height: auto; grid-template-columns: 1fr; }.left-column { height: auto; min-height: 100vh; }.spotify-stage { width: 100%; height: 100vh; }.disc { width: min(82vw, 78vh); }.organizer-view { min-height: 100vh; }.organizer-grid { gap: 5vw; } }
 @media (prefers-reduced-motion: reduce) { .disc { animation: none; } }
