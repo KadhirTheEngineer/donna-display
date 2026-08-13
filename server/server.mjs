@@ -228,7 +228,7 @@ function spotifyRateLimitError(seconds) {
 async function sharedSpotifyPlayback() {
   const now = Date.now();
   if (spotifyRateLimitedUntil > now) throw spotifyRateLimitError((spotifyRateLimitedUntil - now) / 1000);
-  const cacheLifetime = spotifyPlaybackCache?.isPlaying ? 5_000 : 2_000;
+  const cacheLifetime = spotifyPlaybackCache?.isPlaying ? 15_000 : 5_000;
   if (spotifyPlaybackCache && now - spotifyPlaybackFetchedAt < cacheLifetime) return spotifyPlaybackCache;
   if (spotifyPlaybackRequest) return spotifyPlaybackRequest;
   spotifyPlaybackRequest = spotifyPlayback(true)
