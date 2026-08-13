@@ -214,6 +214,8 @@ async function loadPlayback() {
       const playback = await response.json() as Playback;
       renderPlayback(playback);
       nextRefresh = playback.isPlaying ? 5_000 : 2_000;
+    } else {
+      console.error(`Spotify refresh returned ${response.status}`);
     }
   } catch (error) { console.error('Spotify refresh failed', error); }
   window.setTimeout(loadPlayback, nextRefresh);

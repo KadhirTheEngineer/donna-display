@@ -34,15 +34,37 @@ const demoTasks = () => [
 
 async function readTokens() { try { return JSON.parse(await readFile(tokenPath, 'utf8')); } catch { return {}; } }
 async function saveTokens(tokens) { await mkdir(join(root, '.data'), { recursive: true }); await writeFile(tokenPath, JSON.stringify(tokens, null, 2), { mode: 0o600 }); }
+async function removeToken(provider, tokens = null) {
+  const all = tokens || await readTokens();
+  delete all[provider];
+  await saveTokens(all);
+}
+function tokenRequest(provider, config, params) {
+  const headers = { 'content-type': 'application/x-www-form-urlencoded' };
+  if (provider === 'spotify') headers.authorization = `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64')}`;
+  else {
+    params.set('client_id', config.clientId);
+    params.set('client_secret', config.clientSecret);
+  }
+  return { method: 'POST', headers, body: params };
+}
 async function token(provider) {
   const all = await readTokens(); const value = all[provider];
   if (!value) return null;
   if (value.expires_at > Date.now() + 60_000) return value.access_token;
   const config = providerConfig(provider);
-  const params = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: value.refresh_token, client_id: config.clientId });
-  if (config.clientSecret) params.set('client_secret', config.clientSecret);
-  const response = await fetch(config.tokenUrl, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: params });
-  if (!response.ok) return null;
+  if (!value.refresh_token) { await removeToken(provider, all); return null; }
+  const params = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: value.refresh_token });
+  const response = await fetch(config.tokenUrl, tokenRequest(provider, config, params));
+  if (!response.ok) {
+    const details = await response.text();
+    console.error(`${provider} token refresh failed (${response.status}): ${details}`);
+    if (response.status === 400 || response.status === 401) await removeToken(provider, all);
+    if (response.status === 400 || response.status === 401) return null;
+    const error = new Error(`${provider} token service temporarily unavailable`);
+    error.status = 503;
+    throw error;
+  }
   const fresh = await response.json();
   all[provider] = { ...value, ...fresh, expires_at: Date.now() + fresh.expires_in * 1000 };
   await saveTokens(all); return fresh.access_token;
@@ -88,8 +110,8 @@ async function oauthCallback(provider, url, res) {
   const state = url.searchParams.get('state'); const pending = states.get(state); states.delete(state);
   if (!pending || pending.provider !== provider || pending.expires < Date.now()) return send(res, 400, { error: 'Invalid or expired OAuth state.' });
   const config = providerConfig(provider);
-  const params = new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code') || '', redirect_uri: callbackUrl(provider), client_id: config.clientId, client_secret: config.clientSecret });
-  const response = await fetch(config.tokenUrl, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: params });
+  const params = new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code') || '', redirect_uri: callbackUrl(provider) });
+  const response = await fetch(config.tokenUrl, tokenRequest(provider, config, params));
   if (!response.ok) return send(res, 502, { error: `Could not connect ${provider}.`, details: await response.text() });
   const granted = await response.json(); const all = await readTokens();
   all[provider] = { ...granted, expires_at: Date.now() + granted.expires_in * 1000 };
@@ -128,7 +150,8 @@ async function googleData(accessToken) {
 }
 async function spotifyData(accessToken, propagateRateLimit = false) {
   const fallback = { connected: Boolean(accessToken), isPlaying: true, title: 'Dreams', artist: 'Fleetwood Mac', album: 'Rumours', artwork: 'https://i.scdn.co/image/ab67616d0000b273e52a59a28efa4773dd2bfe1b', progressMs: 126000, durationMs: 257000 };
-  if (!accessToken) return fallback;
+  const disconnected = { connected: false, isPlaying: false, title: 'Reconnect Spotify', artist: 'Authorization required', album: '', artwork: '', progressMs: 0, durationMs: 0 };
+  if (!accessToken) return process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET ? disconnected : fallback;
   const response = await fetch('https://api.spotify.com/v1/me/player/currently-playing', { headers: { Authorization: `Bearer ${accessToken}` } });
   if (response.status === 429 && propagateRateLimit) {
     const error = new Error('Spotify rate limit reached');
@@ -136,25 +159,38 @@ async function spotifyData(accessToken, propagateRateLimit = false) {
     throw error;
   }
   if (response.status === 204) return { ...fallback, connected: true, isPlaying: false, title: 'Nothing playing', artist: 'Spotify', artwork: '' };
-  if (!response.ok) return fallback;
+  if (response.status === 401 || response.status === 403) {
+    await removeToken('spotify');
+    return disconnected;
+  }
+  if (!response.ok) {
+    const error = new Error(`Spotify playback request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   const value = await response.json(), item = value.item;
   return { connected: true, isPlaying: value.is_playing, title: item?.name || 'Nothing playing', artist: item?.artists?.map(a => a.name).join(', ') || item?.show?.name || 'Spotify', album: item?.album?.name || '', artwork: item?.album?.images?.[0]?.url || item?.images?.[0]?.url || '', progressMs: value.progress_ms || 0, durationMs: item?.duration_ms || 0 };
 }
 
 async function dashboard(res) {
-  const [googleToken, spotifyToken] = await Promise.all([token('google'), token('spotify')]);
-  const [forecast, google, playback] = await Promise.all([weather(), googleData(googleToken).catch(() => ({ events: demoEvents(), tasks: demoTasks() })), spotifyData(spotifyToken)]);
+  const googleToken = await token('google').catch(() => null);
+  let spotifyToken;
+  let spotifyTokenUnavailable = false;
+  try { spotifyToken = await token('spotify'); } catch { spotifyTokenUnavailable = true; }
+  const unavailable = { connected: Boolean(spotifyToken), isPlaying: false, title: 'Spotify unavailable', artist: 'Retrying automatically', album: '', artwork: '', progressMs: 0, durationMs: 0 };
+  const [forecast, google, playback] = await Promise.all([weather(), googleData(googleToken).catch(() => ({ events: demoEvents(), tasks: demoTasks() })), spotifyTokenUnavailable ? unavailable : spotifyData(spotifyToken).catch(() => unavailable)]);
   send(res, 200, { greeting: process.env.DISPLAY_NAME || greeting(), demo: !googleToken || !spotifyToken, googleConnected: Boolean(googleToken), spotifyConnected: Boolean(spotifyToken), ...google, weather: forecast, playback });
 }
 async function playback(res) {
-  const spotifyToken = await token('spotify');
   try {
+    const spotifyToken = await token('spotify');
     send(res, 200, await spotifyData(spotifyToken, true));
   } catch (error) {
     if (error.retryAfter) {
       res.writeHead(429, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'retry-after': error.retryAfter });
       return res.end(JSON.stringify({ error: 'Spotify rate limit reached.' }));
     }
+    if (error.status) return send(res, error.status, { error: 'Spotify playback is temporarily unavailable.' });
     throw error;
   }
 }

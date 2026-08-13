@@ -53,6 +53,8 @@ It reports whether a plausible Google Web client ID and secret were loaded and s
 
 The app only requests current-playback read scopes. The record spins only while Spotify says playback is active.
 
+Spotify access tokens refresh automatically using the locally stored refresh token. Temporary playback API errors retain the last real track instead of showing demo data. If Spotify revokes or expires the authorization, the display shows **Reconnect Spotify**; Spotify currently requires reauthorization after a refresh token's six-month lifetime.
+
 ## Display notes
 
 - The layout is optimized for 16:9 at 1920×1080 and has a narrower-screen fallback.

@@ -123,6 +123,13 @@ test('Spotify has a dedicated fast-refresh API', async ({ request }) => {
   });
 });
 
+test('temporary Spotify errors do not replace the displayed track', async ({ page }) => {
+  await expect(page.locator('#track-title')).toHaveText('Dreams');
+  await page.route('**/api/playback', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Temporary failure' }) }));
+  await page.waitForTimeout(2_300);
+  await expect(page.locator('#track-title')).toHaveText('Dreams');
+});
+
 test('Google auth diagnostic does not expose the client secret', async ({ request }) => {
   const response = await request.get('/api/auth/google/diagnostic');
   expect(response.ok()).toBeTruthy();
