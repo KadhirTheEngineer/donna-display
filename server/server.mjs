@@ -17,6 +17,10 @@ const supportedVariants = new Set(['focus', 'standard', 'compact', 'horizontal',
 let activeSceneCommand = null;
 const displayState = { canvas: null, focus: null, pageCommands: [] };
 let sceneExpiryTimer = null;
+let spotifyPlaybackCache = null;
+let spotifyPlaybackFetchedAt = 0;
+let spotifyPlaybackRequest = null;
+let spotifyRateLimitedUntil = 0;
 
 function callbackUrl(provider) {
   if (provider === 'spotify') return process.env.SPOTIFY_REDIRECT_URI || `http://127.0.0.1:${port}/auth/spotify/callback`;
@@ -128,7 +132,11 @@ async function spotifyDiagnostic() {
     refreshTokenStored: Boolean(stored?.refresh_token),
     accessTokenExpiresAt: stored?.expires_at ? new Date(stored.expires_at).toISOString() : null,
     accessTokenExpired: stored?.expires_at ? Date.now() >= stored.expires_at : null,
-    grantedScopes: stored?.scope ? stored.scope.split(' ').filter(Boolean) : []
+    grantedScopes: stored?.scope ? stored.scope.split(' ').filter(Boolean) : [],
+    playbackCached: Boolean(spotifyPlaybackCache),
+    playbackCacheAgeSeconds: spotifyPlaybackCache ? Math.round((Date.now() - spotifyPlaybackFetchedAt) / 1000) : null,
+    rateLimitedUntil: spotifyRateLimitedUntil > Date.now() ? new Date(spotifyRateLimitedUntil).toISOString() : null,
+    rateLimitSecondsRemaining: spotifyRateLimitedUntil > Date.now() ? Math.ceil((spotifyRateLimitedUntil - Date.now()) / 1000) : 0
   };
 }
 
@@ -211,17 +219,43 @@ async function spotifyPlayback(propagateRateLimit = false) {
     return spotifyData(accessToken, propagateRateLimit);
   }
 }
+function spotifyRateLimitError(seconds) {
+  const error = new Error('Spotify rate limit reached');
+  error.retryAfter = String(Math.max(1, Math.ceil(seconds)));
+  error.status = 429;
+  return error;
+}
+async function sharedSpotifyPlayback() {
+  const now = Date.now();
+  if (spotifyRateLimitedUntil > now) throw spotifyRateLimitError((spotifyRateLimitedUntil - now) / 1000);
+  const cacheLifetime = spotifyPlaybackCache?.isPlaying ? 5_000 : 2_000;
+  if (spotifyPlaybackCache && now - spotifyPlaybackFetchedAt < cacheLifetime) return spotifyPlaybackCache;
+  if (spotifyPlaybackRequest) return spotifyPlaybackRequest;
+  spotifyPlaybackRequest = spotifyPlayback(true)
+    .then(playback => {
+      spotifyPlaybackCache = playback;
+      spotifyPlaybackFetchedAt = Date.now();
+      spotifyRateLimitedUntil = 0;
+      return playback;
+    })
+    .catch(error => {
+      if (error.retryAfter) spotifyRateLimitedUntil = Date.now() + Math.max(1, Number(error.retryAfter) || 5) * 1000;
+      throw error;
+    })
+    .finally(() => { spotifyPlaybackRequest = null; });
+  return spotifyPlaybackRequest;
+}
 
 async function dashboard(res) {
   const googleToken = await token('google').catch(() => null);
   const storedSpotifyToken = Boolean((await readTokens()).spotify);
   const unavailable = { connected: storedSpotifyToken, isPlaying: false, title: 'Spotify unavailable', artist: 'Retrying automatically', album: '', artwork: '', progressMs: 0, durationMs: 0 };
-  const [forecast, google, playback] = await Promise.all([weather(), googleData(googleToken).catch(() => ({ events: demoEvents(), tasks: demoTasks() })), spotifyPlayback().catch(() => unavailable)]);
+  const [forecast, google, playback] = await Promise.all([weather(), googleData(googleToken).catch(() => ({ events: demoEvents(), tasks: demoTasks() })), sharedSpotifyPlayback().catch(() => spotifyPlaybackCache || unavailable)]);
   send(res, 200, { greeting: process.env.DISPLAY_NAME || greeting(), demo: !googleToken || !storedSpotifyToken, googleConnected: Boolean(googleToken), spotifyConnected: playback.connected, ...google, weather: forecast, playback });
 }
 async function playback(res) {
   try {
-    send(res, 200, await spotifyPlayback(true));
+    send(res, 200, await sharedSpotifyPlayback());
   } catch (error) {
     if (error.retryAfter) {
       res.writeHead(429, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'retry-after': error.retryAfter });

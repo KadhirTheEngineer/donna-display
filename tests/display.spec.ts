@@ -223,15 +223,18 @@ test('dashboard API returns the expected contract', async ({ request }) => {
 });
 
 test('Spotify has a dedicated fast-refresh API', async ({ request }) => {
-  const response = await request.get('/api/playback');
+  const [response, concurrentResponse] = await Promise.all([request.get('/api/playback'), request.get('/api/playback')]);
   expect(response.ok()).toBeTruthy();
-  expect(await response.json()).toMatchObject({
+  expect(concurrentResponse.ok()).toBeTruthy();
+  const playback = await response.json();
+  expect(playback).toMatchObject({
     connected: false,
     isPlaying: true,
     title: 'Dreams',
     progressMs: expect.any(Number),
     durationMs: expect.any(Number)
   });
+  expect(await concurrentResponse.json()).toEqual(playback);
 });
 
 test('temporary Spotify errors do not replace the displayed track', async ({ page }) => {
@@ -268,7 +271,11 @@ test('Spotify auth diagnostic reports token readiness without exposing credentia
     refreshTokenStored: false,
     accessTokenExpiresAt: null,
     accessTokenExpired: null,
-    grantedScopes: []
+    grantedScopes: [],
+    playbackCached: true,
+    playbackCacheAgeSeconds: expect.any(Number),
+    rateLimitedUntil: null,
+    rateLimitSecondsRemaining: 0
   });
   expect(diagnostic).not.toHaveProperty('clientSecret');
   expect(diagnostic).not.toHaveProperty('accessToken');

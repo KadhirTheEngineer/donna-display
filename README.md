@@ -53,7 +53,7 @@ It reports whether a plausible Google Web client ID and secret were loaded and s
 
 The app only requests current-playback read scopes. The record spins only while Spotify says playback is active.
 
-Spotify access tokens refresh automatically using the locally stored refresh token. Concurrent dashboard and playback requests share one refresh operation, and a rejected access token triggers one forced refresh before failing. Temporary playback API errors retain the last real track instead of showing demo data. If Spotify revokes or expires the authorization, the display shows **Reconnect Spotify**; Spotify currently requires reauthorization after a refresh token's six-month lifetime.
+Spotify access tokens refresh automatically using the locally stored refresh token. Concurrent dashboard and playback requests share one refresh operation, and a rejected access token triggers one forced refresh before failing. Playback is also cached and coalesced server-side, so multiple browser tabs share one Spotify request cadence instead of multiplying traffic. A 429 creates one global cooldown honoring Spotify's `Retry-After` value. Temporary playback API errors retain the last real track instead of showing demo data. If Spotify revokes or expires the authorization, the display shows **Reconnect Spotify**; Spotify currently requires reauthorization after a refresh token's six-month lifetime.
 
 To inspect Spotify readiness without exposing credentials or tokens:
 
