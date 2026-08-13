@@ -254,3 +254,23 @@ test('Google auth diagnostic does not expose the client secret', async ({ reques
   });
   expect(diagnostic).not.toHaveProperty('clientSecret');
 });
+
+test('Spotify auth diagnostic reports token readiness without exposing credentials', async ({ request }) => {
+  const response = await request.get('/api/auth/spotify/diagnostic');
+  expect(response.ok()).toBeTruthy();
+  const diagnostic = await response.json();
+  expect(diagnostic).toMatchObject({
+    provider: 'spotify',
+    configured: false,
+    clientSecretConfigured: false,
+    tokenStored: false,
+    accessTokenStored: false,
+    refreshTokenStored: false,
+    accessTokenExpiresAt: null,
+    accessTokenExpired: null,
+    grantedScopes: []
+  });
+  expect(diagnostic).not.toHaveProperty('clientSecret');
+  expect(diagnostic).not.toHaveProperty('accessToken');
+  expect(diagnostic).not.toHaveProperty('refreshToken');
+});

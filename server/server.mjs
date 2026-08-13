@@ -10,6 +10,7 @@ const root = new URL('../', import.meta.url).pathname;
 const tokenPath = join(root, '.data', 'oauth.json');
 const baseUrl = `http://localhost:${port}`;
 const states = new Map();
+const tokenRefreshes = new Map();
 const sceneClients = new Set();
 const supportedWidgets = new Set(['clock', 'weather.weekly', 'calendar.agenda', 'tasks.list']);
 const supportedVariants = new Set(['focus', 'standard', 'compact', 'horizontal', 'vertical']);
@@ -54,26 +55,40 @@ function tokenRequest(provider, config, params) {
   }
   return { method: 'POST', headers, body: params };
 }
-async function token(provider) {
-  const all = await readTokens(); const value = all[provider];
-  if (!value) return null;
-  if (value.expires_at > Date.now() + 60_000) return value.access_token;
+async function refreshToken(provider, value) {
   const config = providerConfig(provider);
-  if (!value.refresh_token) { await removeToken(provider, all); return null; }
+  if (!value.refresh_token) { await removeToken(provider); return null; }
   const params = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: value.refresh_token });
   const response = await fetch(config.tokenUrl, tokenRequest(provider, config, params));
   if (!response.ok) {
-    const details = await response.text();
-    console.error(`${provider} token refresh failed (${response.status}): ${details}`);
-    if (response.status === 400 || response.status === 401) await removeToken(provider, all);
-    if (response.status === 400 || response.status === 401) return null;
+    const failure = await response.json().catch(() => ({}));
+    console.error(`${provider} token refresh failed (${response.status}): ${failure.error || 'unknown_error'}${failure.error_description ? ` - ${failure.error_description}` : ''}`);
+    if (failure.error === 'invalid_grant') {
+      const current = await readTokens();
+      if (current[provider]?.refresh_token === value.refresh_token) await removeToken(provider, current);
+      return null;
+    }
     const error = new Error(`${provider} token service temporarily unavailable`);
     error.status = 503;
+    error.oauthError = failure.error || 'unknown_error';
     throw error;
   }
   const fresh = await response.json();
-  all[provider] = { ...value, ...fresh, expires_at: Date.now() + fresh.expires_in * 1000 };
-  await saveTokens(all); return fresh.access_token;
+  const all = await readTokens();
+  all[provider] = { ...value, ...all[provider], ...fresh, expires_at: Date.now() + fresh.expires_in * 1000 };
+  await saveTokens(all);
+  return fresh.access_token;
+}
+async function token(provider, forceRefresh = false) {
+  const all = await readTokens(); const value = all[provider];
+  if (!value) return null;
+  if (!forceRefresh && value.expires_at > Date.now() + 60_000) return value.access_token;
+  if (tokenRefreshes.has(provider)) return tokenRefreshes.get(provider);
+  const pending = refreshToken(provider, value).finally(() => {
+    if (tokenRefreshes.get(provider) === pending) tokenRefreshes.delete(provider);
+  });
+  tokenRefreshes.set(provider, pending);
+  return pending;
 }
 
 function providerConfig(provider) {
@@ -101,6 +116,19 @@ function authDiagnostic(provider) {
     clientIdEnding: clientId ? clientId.slice(-28) : null,
     clientSecretConfigured: Boolean(clientSecret),
     redirectUri: callbackUrl(provider)
+  };
+}
+async function spotifyDiagnostic() {
+  const diagnostic = authDiagnostic('spotify');
+  const stored = (await readTokens()).spotify;
+  return {
+    ...diagnostic,
+    tokenStored: Boolean(stored),
+    accessTokenStored: Boolean(stored?.access_token),
+    refreshTokenStored: Boolean(stored?.refresh_token),
+    accessTokenExpiresAt: stored?.expires_at ? new Date(stored.expires_at).toISOString() : null,
+    accessTokenExpired: stored?.expires_at ? Date.now() >= stored.expires_at : null,
+    grantedScopes: stored?.scope ? stored.scope.split(' ').filter(Boolean) : []
   };
 }
 
@@ -166,10 +194,6 @@ async function spotifyData(accessToken, propagateRateLimit = false) {
     throw error;
   }
   if (response.status === 204) return { ...fallback, connected: true, isPlaying: false, title: 'Nothing playing', artist: 'Spotify', artwork: '' };
-  if (response.status === 401 || response.status === 403) {
-    await removeToken('spotify');
-    return disconnected;
-  }
   if (!response.ok) {
     const error = new Error(`Spotify playback request failed (${response.status})`);
     error.status = response.status;
@@ -178,20 +202,26 @@ async function spotifyData(accessToken, propagateRateLimit = false) {
   const value = await response.json(), item = value.item;
   return { connected: true, isPlaying: value.is_playing, title: item?.name || 'Nothing playing', artist: item?.artists?.map(a => a.name).join(', ') || item?.show?.name || 'Spotify', album: item?.album?.name || '', artwork: item?.album?.images?.[0]?.url || item?.images?.[0]?.url || '', progressMs: value.progress_ms || 0, durationMs: item?.duration_ms || 0 };
 }
+async function spotifyPlayback(propagateRateLimit = false) {
+  let accessToken = await token('spotify');
+  try { return await spotifyData(accessToken, propagateRateLimit); }
+  catch (error) {
+    if (error.status !== 401) throw error;
+    accessToken = await token('spotify', true);
+    return spotifyData(accessToken, propagateRateLimit);
+  }
+}
 
 async function dashboard(res) {
   const googleToken = await token('google').catch(() => null);
-  let spotifyToken;
-  let spotifyTokenUnavailable = false;
-  try { spotifyToken = await token('spotify'); } catch { spotifyTokenUnavailable = true; }
-  const unavailable = { connected: Boolean(spotifyToken), isPlaying: false, title: 'Spotify unavailable', artist: 'Retrying automatically', album: '', artwork: '', progressMs: 0, durationMs: 0 };
-  const [forecast, google, playback] = await Promise.all([weather(), googleData(googleToken).catch(() => ({ events: demoEvents(), tasks: demoTasks() })), spotifyTokenUnavailable ? unavailable : spotifyData(spotifyToken).catch(() => unavailable)]);
-  send(res, 200, { greeting: process.env.DISPLAY_NAME || greeting(), demo: !googleToken || !spotifyToken, googleConnected: Boolean(googleToken), spotifyConnected: Boolean(spotifyToken), ...google, weather: forecast, playback });
+  const storedSpotifyToken = Boolean((await readTokens()).spotify);
+  const unavailable = { connected: storedSpotifyToken, isPlaying: false, title: 'Spotify unavailable', artist: 'Retrying automatically', album: '', artwork: '', progressMs: 0, durationMs: 0 };
+  const [forecast, google, playback] = await Promise.all([weather(), googleData(googleToken).catch(() => ({ events: demoEvents(), tasks: demoTasks() })), spotifyPlayback().catch(() => unavailable)]);
+  send(res, 200, { greeting: process.env.DISPLAY_NAME || greeting(), demo: !googleToken || !storedSpotifyToken, googleConnected: Boolean(googleToken), spotifyConnected: playback.connected, ...google, weather: forecast, playback });
 }
 async function playback(res) {
   try {
-    const spotifyToken = await token('spotify');
-    send(res, 200, await spotifyData(spotifyToken, true));
+    send(res, 200, await spotifyPlayback(true));
   } catch (error) {
     if (error.retryAfter) {
       res.writeHead(429, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'retry-after': error.retryAfter });
@@ -318,6 +348,7 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/dashboard') return await dashboard(res);
     if (url.pathname === '/api/playback') return await playback(res);
     if (url.pathname === '/api/auth/google/diagnostic') return send(res, 200, authDiagnostic('google'));
+    if (url.pathname === '/api/auth/spotify/diagnostic') return send(res, 200, await spotifyDiagnostic());
     if (url.pathname === '/api/display/events' && req.method === 'GET') return openSceneEvents(req, res);
     if (url.pathname === '/api/display/state' && req.method === 'GET') return send(res, 200, { scene: activeSceneCommand, commands: [displayState.canvas, ...displayState.pageCommands, displayState.focus].filter(Boolean) });
     if (url.pathname === '/api/display/commands' && req.method === 'POST') {
