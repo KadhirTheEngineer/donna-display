@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "command_id": "example-pin-current-page",
+  "action": "display.page.pin",
+  "pagination": { "mode": "pinned" }
+}

@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: './tests',
   outputDir: 'test-results',
   fullyParallel: true,
+  workers: 1,
   forbidOnly: true,
   reporter: 'list',
   use: {

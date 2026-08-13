@@ -1,10 +1,12 @@
 import './style.css';
+import { buildPages, selectVariant, widgetRegistry, type DisplayPage, type WidgetRequest, type WidgetType, type WidgetVariant } from './widget-engine';
 
 type CalendarEvent = { id: string; title: string; start: string; end?: string; allDay?: boolean };
 type Task = { id: string; title: string; due?: string };
+type ForecastDay = { date: string; condition: string; high: number; low: number; precipitation: number; uv: number; wind: number; windDirection: string };
 type Weather = {
   location: string; condition: string; temperature: number; high: number; low: number;
-  precipitation: number; uv: number; wind: number; windDirection: string;
+  precipitation: number; uv: number; wind: number; windDirection: string; forecast: ForecastDay[];
 };
 type Playback = {
   connected: boolean; isPlaying: boolean; title: string; artist: string;
@@ -14,10 +16,25 @@ type Dashboard = {
   greeting: string; demo: boolean; googleConnected: boolean; spotifyConnected: boolean;
   events: CalendarEvent[]; tasks: Task[]; weather: Weather; playback: Playback;
 };
+type Pagination = { mode: 'cycle' | 'pinned' | 'manual'; interval_seconds?: number; page_id?: string };
+type DisplayCommand = {
+  schema_version: 1; command_id: string;
+  action: 'display.scene.set' | 'display.scene.home' | 'display.canvas.set' | 'display.focus.set' | 'display.focus.clear' | 'display.page.pin' | 'display.page.cycle' | 'display.page.next' | 'display.page.previous';
+  scene?: { layout: 'fullscreen'; widget: WidgetType; variant?: 'focus'; title?: string };
+  canvas?: { widgets: WidgetRequest[]; pagination?: Pagination };
+  widget?: WidgetRequest;
+  pagination?: Pagination;
+};
 
 const app = document.querySelector<HTMLElement>('#app')!;
 let playbackSnapshot: Playback | null = null;
 let playbackReceivedAt = 0;
+let dashboardSnapshot: Dashboard | null = null;
+let pendingDisplayCommand: DisplayCommand | null = null;
+let canvasPages: DisplayPage[] = [];
+let activeCanvasPage = 0;
+let canvasPagination: Pagination = { mode: 'cycle', interval_seconds: 15 };
+let pageCycleTimer: ReturnType<typeof setInterval> | null = null;
 
 app.innerHTML = `
   <div class="shell">
@@ -56,6 +73,16 @@ app.innerHTML = `
       </section>
     </section>
 
+    <section class="focus-view view" id="focus-view" aria-label="Focused display">
+      <div class="focus-content" id="focus-content"></div>
+      <p class="focus-hint">ESC · RETURN HOME</p>
+    </section>
+
+    <section class="canvas-view view" id="canvas-view" aria-label="Dynamic widget canvas">
+      <div class="canvas-grid" id="canvas-grid"></div>
+      <div class="page-status" id="page-status" aria-live="polite"></div>
+    </section>
+
     <section class="organizer-view view" id="organizer-view" aria-label="Calendar and tasks">
       <header class="organizer-header"><div><p class="eyebrow">YOUR DAY</p><h1>Calendar <span>&</span> Tasks</h1></div><span class="status" id="google-status"></span></header>
       <div class="organizer-grid"><section><h2>Upcoming</h2><div id="events"></div></section><section><h2>Open tasks <span id="task-count">0</span></h2><div id="tasks"></div></section></div>
@@ -91,10 +118,20 @@ function tick() {
   document.querySelector('#period')!.textContent = parts.find(p => p.type === 'dayPeriod')?.value || '';
   document.querySelector('#clock-seconds')!.textContent = String(now.getSeconds()).padStart(2, '0');
   document.querySelector('#date')!.textContent = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now).toUpperCase();
+  const focusTime = document.querySelector('#focus-time');
+  if (focusTime) focusTime.textContent = `${parts.find(p => p.type === 'hour')?.value}:${parts.find(p => p.type === 'minute')?.value}`;
+  const focusPeriod = document.querySelector('#focus-period');
+  if (focusPeriod) focusPeriod.textContent = parts.find(p => p.type === 'dayPeriod')?.value || '';
+  const focusSeconds = document.querySelector('#focus-seconds');
+  if (focusSeconds) focusSeconds.textContent = String(now.getSeconds()).padStart(2, '0');
+  document.querySelectorAll('[data-live-time]').forEach(node => { node.textContent = `${parts.find(p => p.type === 'hour')?.value}:${parts.find(p => p.type === 'minute')?.value}`; });
+  document.querySelectorAll('[data-live-period]').forEach(node => { node.textContent = parts.find(p => p.type === 'dayPeriod')?.value || ''; });
+  document.querySelectorAll('[data-live-seconds]').forEach(node => { node.textContent = String(now.getSeconds()).padStart(2, '0'); });
   updatePlaybackProgress();
 }
 
 function render(data: Dashboard) {
+  dashboardSnapshot = data;
   document.querySelector('#greeting')!.textContent = data.greeting.toUpperCase();
   document.querySelector('#google-status')!.innerHTML = data.googleConnected ? '<span class="dot"></span> SYNCED' : '<a href="/auth/google">CONNECT GOOGLE</a>';
   renderOrganizer(data.events, data.tasks);
@@ -102,6 +139,114 @@ function render(data: Dashboard) {
   renderWeather(data.weather);
   renderPlayback(data.playback);
   document.querySelector('#demo-note')!.textContent = data.demo ? 'DEMO' : '';
+  if (pendingDisplayCommand) {
+    const command = pendingDisplayCommand;
+    pendingDisplayCommand = null;
+    applyDisplayCommand(command);
+  }
+}
+
+const focusRenderers: Record<WidgetType, (data: Dashboard, title?: string) => string> = {
+  clock: (_data, title) => {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(now);
+    const time = `${parts.find(part => part.type === 'hour')?.value}:${parts.find(part => part.type === 'minute')?.value}`;
+    const period = parts.find(part => part.type === 'dayPeriod')?.value || '';
+    return `<div class="focus-clock"><p class="focus-kicker">${escapeHtml(title || 'CURRENT TIME')}</p><div class="focus-clock-row"><strong id="focus-time">${time}</strong><span class="focus-clock-side"><b id="focus-period">${period}</b><b id="focus-seconds">${String(now.getSeconds()).padStart(2, '0')}</b></span></div><p>${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now)}</p></div>`;
+  },
+  'weather.weekly': (data, title) => {
+    const weather = data.weather;
+    const days = weather.forecast.length ? weather.forecast : [{ date: new Date().toISOString().slice(0, 10), ...weather }];
+    return `<div class="focus-weather"><header><div><p class="focus-kicker">${escapeHtml(title || '7 DAY FORECAST')}</p><h1>${escapeHtml(weather.location)}</h1></div><div class="focus-current"><span>${weatherSymbol(weather.condition)}</span><strong>${Math.round(weather.temperature)}°</strong><p>${escapeHtml(weather.condition)}</p></div></header><div class="forecast-grid">${days.map((day, index) => `<article class="forecast-day ${index === 0 ? 'today' : ''}"><p>${index === 0 ? 'TODAY' : new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${day.date}T00:00:00Z`)).toUpperCase()}</p><span class="forecast-icon">${weatherSymbol(day.condition)}</span><strong>${Math.round(day.high)}°</strong><span class="forecast-low">${Math.round(day.low)}°</span><div><span>RAIN ${Math.round(day.precipitation)}%</span><span>UV ${Math.round(day.uv)}</span><span>${day.windDirection} ${Math.round(day.wind)} MPH</span></div></article>`).join('')}</div></div>`;
+  },
+  'calendar.agenda': (data, title) => `<div class="focus-list"><header><p class="focus-kicker">${escapeHtml(title || 'CALENDAR')}</p><h1>Upcoming</h1></header><div>${data.events.length ? data.events.slice(0, 8).map(event => `<article><time>${event.allDay ? 'ALL DAY' : formatTime(new Date(event.start))}</time><div><strong>${escapeHtml(event.title)}</strong><p>${event.allDay ? relativeDay(new Date(event.start)) : `${relativeDay(new Date(event.start))} · ${durationLabel(event)}`}</p></div></article>`).join('') : '<p class="focus-empty">Your calendar is clear.</p>'}</div></div>`,
+  'tasks.list': (data, title) => `<div class="focus-list focus-tasks"><header><p class="focus-kicker">${escapeHtml(title || 'TASKS')}</p><h1>To do</h1></header><div>${data.tasks.length ? data.tasks.slice(0, 9).map(task => `<article><span class="focus-checkbox"></span><div><strong>${escapeHtml(task.title)}</strong><p>${task.due ? formatDue(task.due) : 'No due date'}</p></div></article>`).join('') : '<p class="focus-empty">Nothing left to do.</p>'}</div></div>`
+};
+
+const canvasRenderers: Record<WidgetType, (data: Dashboard, variant: WidgetVariant, title?: string) => string> = {
+  clock: (_data, variant, title) => {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(now);
+    const time = `${parts.find(part => part.type === 'hour')?.value}:${parts.find(part => part.type === 'minute')?.value}`;
+    const period = parts.find(part => part.type === 'dayPeriod')?.value || '';
+    return `<article class="canvas-widget widget-clock variant-${variant}"><p class="widget-label">${escapeHtml(title || 'TIME')}</p><div class="widget-time"><strong data-live-time>${time}</strong><span><b data-live-period>${period}</b><b data-live-seconds>${String(now.getSeconds()).padStart(2, '0')}</b></span></div><p class="widget-date">${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now)}</p></article>`;
+  },
+  'weather.weekly': (data, variant, title) => {
+    const weather = data.weather;
+    const limit = variant === 'compact' ? 3 : variant === 'vertical' ? 4 : 7;
+    const days = (weather.forecast.length ? weather.forecast : [{ date: new Date().toISOString().slice(0, 10), ...weather }]).slice(0, limit);
+    return `<article class="canvas-widget widget-weather variant-${variant}"><header><div><p class="widget-label">${escapeHtml(title || 'WEATHER')}</p><h2>${escapeHtml(weather.location)}</h2></div><div class="widget-weather-now"><span>${weatherSymbol(weather.condition)}</span><strong>${Math.round(weather.temperature)}°</strong></div></header><div class="widget-forecast">${days.map((day, index) => `<div><p>${index ? new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${day.date}T00:00:00Z`)).toUpperCase() : 'TODAY'}</p><span>${weatherSymbol(day.condition)}</span><strong>${Math.round(day.high)}°</strong><small>${Math.round(day.precipitation)}% RAIN</small></div>`).join('')}</div></article>`;
+  },
+  'calendar.agenda': (data, variant, title) => {
+    const limit = variant === 'compact' ? 3 : variant === 'horizontal' ? 4 : 6;
+    return `<article class="canvas-widget widget-list variant-${variant}"><header><p class="widget-label">${escapeHtml(title || 'CALENDAR')}</p><h2>Upcoming</h2></header><div class="widget-list-items">${data.events.length ? data.events.slice(0, limit).map(event => `<div><time>${event.allDay ? 'ALL DAY' : formatTime(new Date(event.start))}</time><span><strong>${escapeHtml(event.title)}</strong><small>${relativeDay(new Date(event.start))}</small></span></div>`).join('') : '<p class="widget-empty">Your calendar is clear.</p>'}</div></article>`;
+  },
+  'tasks.list': (data, variant, title) => {
+    const limit = variant === 'compact' ? 3 : variant === 'horizontal' ? 4 : 7;
+    return `<article class="canvas-widget widget-list widget-tasks variant-${variant}"><header><p class="widget-label">${escapeHtml(title || 'TASKS')}</p><h2>To do</h2></header><div class="widget-list-items">${data.tasks.length ? data.tasks.slice(0, limit).map(task => `<div><i></i><span><strong>${escapeHtml(task.title)}</strong><small>${task.due ? formatDue(task.due) : 'No due date'}</small></span></div>`).join('') : '<p class="widget-empty">Nothing left to do.</p>'}</div></article>`;
+  }
+};
+
+function renderCanvasPage() {
+  if (!dashboardSnapshot || !canvasPages.length) return;
+  activeCanvasPage = Math.max(0, Math.min(activeCanvasPage, canvasPages.length - 1));
+  const page = canvasPages[activeCanvasPage];
+  const grid = document.querySelector<HTMLElement>('#canvas-grid')!;
+  grid.innerHTML = page.widgets.map(placed => `<div class="canvas-cell" data-widget-id="${escapeHtml(placed.request.id)}" data-widget-type="${placed.request.type}" data-variant="${placed.variant}" style="left:${placed.cell.x / 19.2}%;top:${placed.cell.y / 10.8}%;width:${placed.cell.width / 19.2}%;height:${placed.cell.height / 10.8}%">${canvasRenderers[placed.request.type](dashboardSnapshot!, placed.variant, placed.request.title)}</div>`).join('');
+  const pinned = canvasPagination.mode === 'pinned' ? ' · PINNED' : canvasPagination.mode === 'manual' ? ' · MANUAL' : '';
+  document.querySelector('#page-status')!.textContent = canvasPages.length > 1 ? `${activeCanvasPage + 1} / ${canvasPages.length}${pinned}` : pinned.replace(' · ', '');
+}
+
+function startPagePolicy() {
+  if (pageCycleTimer) clearInterval(pageCycleTimer);
+  pageCycleTimer = null;
+  if (canvasPagination.mode === 'cycle' && canvasPages.length > 1) {
+    pageCycleTimer = setInterval(() => { activeCanvasPage = (activeCanvasPage + 1) % canvasPages.length; renderCanvasPage(); }, (canvasPagination.interval_seconds || 15) * 1000);
+  }
+}
+
+function showCanvas() { renderCanvasPage(); showView('canvas-view'); startPagePolicy(); }
+function moveCanvasPage(direction: number) {
+  if (!canvasPages.length) return;
+  activeCanvasPage = (activeCanvasPage + direction + canvasPages.length) % canvasPages.length;
+  renderCanvasPage();
+}
+
+function applyDisplayCommand(command: DisplayCommand) {
+  if (command.action === 'display.scene.home') { pendingDisplayCommand = null; showView('home-view'); return; }
+  if (!dashboardSnapshot) { pendingDisplayCommand = command; return; }
+  if (command.action === 'display.canvas.set' && command.canvas) {
+    const previousPageId = canvasPages[activeCanvasPage]?.id;
+    canvasPages = buildPages(command.canvas.widgets);
+    canvasPagination = command.canvas.pagination || { mode: 'cycle', interval_seconds: 15 };
+    const requestedPage = canvasPagination.page_id || previousPageId;
+    activeCanvasPage = Math.max(0, requestedPage ? canvasPages.findIndex(page => page.id === requestedPage) : 0);
+    showCanvas();
+    return;
+  }
+  if (command.action === 'display.focus.set' && command.widget) {
+    if (!widgetRegistry[command.widget.type].focus || !selectVariant(command.widget, 1920, 1080, true)) return;
+    document.querySelector('#focus-content')!.innerHTML = focusRenderers[command.widget.type](dashboardSnapshot, command.widget.title);
+    showView('focus-view');
+    return;
+  }
+  if (command.action === 'display.focus.clear') { canvasPages.length ? showCanvas() : showView('home-view'); return; }
+  if (command.action === 'display.page.next') { moveCanvasPage(1); return; }
+  if (command.action === 'display.page.previous') { moveCanvasPage(-1); return; }
+  if (command.action === 'display.page.pin') {
+    canvasPagination = { mode: 'pinned', page_id: command.pagination?.page_id || canvasPages[activeCanvasPage]?.id };
+    const target = canvasPages.findIndex(page => page.id === canvasPagination.page_id);
+    if (target >= 0) activeCanvasPage = target;
+    renderCanvasPage(); startPagePolicy(); return;
+  }
+  if (command.action === 'display.page.cycle') {
+    canvasPagination = { mode: 'cycle', interval_seconds: command.pagination?.interval_seconds || 15 };
+    renderCanvasPage(); startPagePolicy(); return;
+  }
+  if (command.action === 'display.scene.set' && command.scene) {
+    document.querySelector('#focus-content')!.innerHTML = focusRenderers[command.scene.widget](dashboardSnapshot, command.scene.title);
+    showView('focus-view');
+  }
 }
 
 function renderNext(events: CalendarEvent[], tasks: Task[]) {
@@ -160,6 +305,7 @@ function showView(viewId: string) {
   document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
   viewButtons.forEach(item => item.classList.toggle('selected', item.dataset.view === viewId));
   document.querySelector(`#${viewId}`)?.classList.add('active');
+  document.querySelector('.shell')?.classList.toggle('dynamic-active', viewId === 'canvas-view' || viewId === 'focus-view');
 }
 viewButtons.forEach(button => button.addEventListener('click', () => showView(button.dataset.view!)));
 
@@ -169,9 +315,24 @@ document.addEventListener('keydown', event => {
   if (event.key === '1') showView('home-view');
   if (event.key === '2') showView('organizer-view');
   if (event.key === '3') showView('settings-view');
+  if (event.key === 'Escape') canvasPages.length ? showCanvas() : showView('home-view');
   if (event.key === 'ArrowLeft') showView(viewButtons[(activeIndex - 1 + viewButtons.length) % viewButtons.length].dataset.view!);
   if (event.key === 'ArrowRight') showView(viewButtons[(activeIndex + 1) % viewButtons.length].dataset.view!);
 });
+
+async function connectSceneCommands() {
+  try {
+    const response = await fetch('/api/display/state');
+    if (response.ok) {
+      const state = await response.json() as { scene: DisplayCommand | null; commands?: DisplayCommand[] };
+      if (state.commands?.length) state.commands.forEach(applyDisplayCommand);
+      else if (state.scene) applyDisplayCommand(state.scene);
+    }
+  } catch (error) { console.error('Could not load display scene state', error); }
+  const events = new EventSource('/api/display/events');
+  events.addEventListener('display-command', event => applyDisplayCommand(JSON.parse((event as MessageEvent).data) as DisplayCommand));
+  events.onerror = () => console.error('Display command stream disconnected; reconnecting automatically.');
+}
 
 const brightness = document.querySelector<HTMLInputElement>('#brightness')!;
 const brightnessValue = document.querySelector<HTMLOutputElement>('#brightness-value')!;
@@ -221,4 +382,4 @@ async function loadPlayback() {
   window.setTimeout(loadPlayback, nextRefresh);
 }
 
-tick(); setInterval(tick, 1000); load(); setInterval(load, 60_000); window.setTimeout(loadPlayback, 2_000);
+tick(); setInterval(tick, 1000); load().then(connectSceneCommands); setInterval(load, 60_000); window.setTimeout(loadPlayback, 2_000);

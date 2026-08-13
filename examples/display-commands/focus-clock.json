@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "command_id": "example-focus-clock",
+  "action": "display.scene.set",
+  "scene": { "layout": "fullscreen", "widget": "clock", "variant": "focus" },
+  "behavior": { "duration_seconds": 60, "revert_to": "ambient-home", "transition": "fade" }
+}

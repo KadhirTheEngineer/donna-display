@@ -10,6 +10,12 @@ const root = new URL('../', import.meta.url).pathname;
 const tokenPath = join(root, '.data', 'oauth.json');
 const baseUrl = `http://localhost:${port}`;
 const states = new Map();
+const sceneClients = new Set();
+const supportedWidgets = new Set(['clock', 'weather.weekly', 'calendar.agenda', 'tasks.list']);
+const supportedVariants = new Set(['focus', 'standard', 'compact', 'horizontal', 'vertical']);
+let activeSceneCommand = null;
+const displayState = { canvas: null, focus: null, pageCommands: [] };
+let sceneExpiryTimer = null;
 
 function callbackUrl(provider) {
   if (provider === 'spotify') return process.env.SPOTIFY_REDIRECT_URI || `http://127.0.0.1:${port}/auth/spotify/callback`;
@@ -120,12 +126,13 @@ async function oauthCallback(provider, url, res) {
 
 async function weather() {
   const latitude = process.env.LATITUDE || '30.2672', longitude = process.env.LONGITUDE || '-97.7431';
-  const params = new URLSearchParams({ latitude, longitude, current: 'temperature_2m,weather_code', daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max,wind_speed_10m_max,wind_direction_10m_dominant', temperature_unit: 'fahrenheit', wind_speed_unit: 'mph', timezone: process.env.TIMEZONE || 'auto', forecast_days: '1' });
+  const params = new URLSearchParams({ latitude, longitude, current: 'temperature_2m,weather_code', daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max,wind_speed_10m_max,wind_direction_10m_dominant', temperature_unit: 'fahrenheit', wind_speed_unit: 'mph', timezone: process.env.TIMEZONE || 'auto', forecast_days: '7' });
   try {
     const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`); if (!response.ok) throw new Error();
     const value = await response.json(); const d = value.daily;
-    return { location: process.env.WEATHER_LOCATION || 'Austin', condition: weatherName(value.current.weather_code), temperature: value.current.temperature_2m, high: d.temperature_2m_max[0], low: d.temperature_2m_min[0], precipitation: d.precipitation_probability_max[0], uv: d.uv_index_max[0], wind: d.wind_speed_10m_max[0], windDirection: compass(d.wind_direction_10m_dominant[0]) };
-  } catch { return { location: 'Weather offline', condition: 'Clear', temperature: 68, high: 73, low: 58, precipitation: 12, uv: 4, wind: 8, windDirection: 'NW' }; }
+    const forecast = d.time.map((date, index) => ({ date, condition: weatherName(d.weather_code[index]), high: d.temperature_2m_max[index], low: d.temperature_2m_min[index], precipitation: d.precipitation_probability_max[index], uv: d.uv_index_max[index], wind: d.wind_speed_10m_max[index], windDirection: compass(d.wind_direction_10m_dominant[index]) }));
+    return { location: process.env.WEATHER_LOCATION || 'Austin', condition: weatherName(value.current.weather_code), temperature: value.current.temperature_2m, high: d.temperature_2m_max[0], low: d.temperature_2m_min[0], precipitation: d.precipitation_probability_max[0], uv: d.uv_index_max[0], wind: d.wind_speed_10m_max[0], windDirection: compass(d.wind_direction_10m_dominant[0]), forecast };
+  } catch { return { location: 'Weather offline', condition: 'Clear', temperature: 68, high: 73, low: 58, precipitation: 12, uv: 4, wind: 8, windDirection: 'NW', forecast: [] }; }
 }
 function weatherName(code) { if (code === 0) return 'Clear'; if (code <= 3) return 'Partly cloudy'; if (code <= 48) return 'Fog'; if (code <= 57) return 'Drizzle'; if (code <= 67) return 'Rain'; if (code <= 77) return 'Snow'; if (code <= 82) return 'Rain showers'; if (code <= 86) return 'Snow showers'; return 'Thunderstorms'; }
 function compass(degrees) { return ['N','NE','E','SE','S','SW','W','NW'][Math.round(degrees / 45) % 8]; }
@@ -198,6 +205,104 @@ function greeting() { const hour = new Date().getHours(); return hour < 12 ? 'Go
 function send(res, status, value) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)); }
 function redirect(res, location) { res.writeHead(302, { location }); res.end(); }
 
+function isLoopback(req) {
+  const address = req.socket.remoteAddress;
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+function validateDisplayCommand(value) {
+  const errors = [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ['command must be a JSON object'];
+  const allowedTop = new Set(['schema_version', 'command_id', 'action', 'scene', 'canvas', 'widget', 'pagination', 'behavior']);
+  for (const key of Object.keys(value)) if (!allowedTop.has(key)) errors.push(`unknown field: ${key}`);
+  if (value.schema_version !== 1) errors.push('schema_version must be 1');
+  if (typeof value.command_id !== 'string' || value.command_id.length < 8 || value.command_id.length > 100) errors.push('command_id must contain 8 to 100 characters');
+  const actions = ['display.scene.set', 'display.scene.home', 'display.canvas.set', 'display.focus.set', 'display.focus.clear', 'display.page.pin', 'display.page.cycle', 'display.page.next', 'display.page.previous'];
+  if (!actions.includes(value.action)) errors.push('unsupported action');
+  if (value.action === 'display.scene.set') {
+    if (!value.scene || typeof value.scene !== 'object') errors.push('scene is required');
+    else {
+      if (value.scene.layout !== 'fullscreen') errors.push('scene.layout must be fullscreen');
+      if (!supportedWidgets.has(value.scene.widget)) errors.push('unsupported widget');
+      if (value.scene.variant !== undefined && value.scene.variant !== 'focus') errors.push('scene.variant must be focus');
+      if (value.scene.title !== undefined && (typeof value.scene.title !== 'string' || value.scene.title.length > 80)) errors.push('scene.title must be at most 80 characters');
+      for (const key of Object.keys(value.scene)) if (!['layout', 'widget', 'variant', 'title'].includes(key)) errors.push(`unknown scene field: ${key}`);
+    }
+  }
+  if (value.action === 'display.canvas.set') {
+    if (!value.canvas || typeof value.canvas !== 'object' || Array.isArray(value.canvas)) errors.push('canvas is required');
+    else {
+      for (const key of Object.keys(value.canvas)) if (!['widgets', 'pagination'].includes(key)) errors.push(`unknown canvas field: ${key}`);
+      if (!Array.isArray(value.canvas.widgets) || value.canvas.widgets.length < 1 || value.canvas.widgets.length > 12) errors.push('canvas.widgets must contain 1 to 12 widgets');
+      else {
+        const ids = new Set();
+        value.canvas.widgets.forEach((widget, index) => validateWidget(widget, `canvas.widgets[${index}]`, errors, ids));
+      }
+      validatePagination(value.canvas.pagination, 'canvas.pagination', errors, false);
+    }
+  }
+  if (value.action === 'display.focus.set') validateWidget(value.widget, 'widget', errors, new Set(), true);
+  if (value.action === 'display.page.pin') validatePagination(value.pagination || { mode: 'pinned' }, 'pagination', errors, true);
+  if (value.action === 'display.page.cycle') validatePagination(value.pagination || { mode: 'cycle' }, 'pagination', errors, false);
+  const duration = value.behavior?.duration_seconds;
+  if (duration !== undefined && (!Number.isInteger(duration) || duration < 5 || duration > 3600)) errors.push('duration_seconds must be an integer from 5 to 3600');
+  return errors;
+}
+function validateWidget(widget, path, errors, ids, focus = false) {
+  if (!widget || typeof widget !== 'object' || Array.isArray(widget)) { errors.push(`${path} must be an object`); return; }
+  for (const key of Object.keys(widget)) if (!['id', 'type', 'title', 'preferred_variant', 'priority'].includes(key)) errors.push(`unknown ${path} field: ${key}`);
+  if (typeof widget.id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(widget.id)) errors.push(`${path}.id must be a stable identifier`);
+  else if (ids.has(widget.id)) errors.push(`${path}.id must be unique`); else ids.add(widget.id);
+  if (!supportedWidgets.has(widget.type)) errors.push(`unsupported widget: ${widget.type || 'missing'}`);
+  if (widget.title !== undefined && (typeof widget.title !== 'string' || widget.title.length > 80)) errors.push(`${path}.title must be at most 80 characters`);
+  if (widget.preferred_variant !== undefined && !supportedVariants.has(widget.preferred_variant)) errors.push(`${path}.preferred_variant is unsupported`);
+  if (focus && widget.preferred_variant !== undefined && widget.preferred_variant !== 'focus') errors.push('a focused widget can only request the focus variant');
+  if (widget.priority !== undefined && (!Number.isInteger(widget.priority) || widget.priority < 0 || widget.priority > 100)) errors.push(`${path}.priority must be an integer from 0 to 100`);
+}
+function validatePagination(pagination, path, errors, pinRequired) {
+  if (pagination === undefined) return;
+  if (!pagination || typeof pagination !== 'object' || Array.isArray(pagination)) { errors.push(`${path} must be an object`); return; }
+  for (const key of Object.keys(pagination)) if (!['mode', 'interval_seconds', 'page_id'].includes(key)) errors.push(`unknown ${path} field: ${key}`);
+  if (!['cycle', 'pinned', 'manual'].includes(pagination.mode)) errors.push(`${path}.mode is unsupported`);
+  if (pinRequired && pagination.mode !== 'pinned') errors.push(`${path}.mode must be pinned`);
+  if (pagination.interval_seconds !== undefined && (!Number.isInteger(pagination.interval_seconds) || pagination.interval_seconds < 5 || pagination.interval_seconds > 300)) errors.push(`${path}.interval_seconds must be an integer from 5 to 300`);
+  if (pagination.page_id !== undefined && (typeof pagination.page_id !== 'string' || pagination.page_id.length > 300)) errors.push(`${path}.page_id is invalid`);
+}
+async function readJsonBody(req) {
+  let body = '';
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 32_768) throw new Error('Command body is too large.');
+  }
+  return JSON.parse(body || '{}');
+}
+function publishSceneCommand(command) {
+  const payload = `event: display-command\ndata: ${JSON.stringify(command)}\n\n`;
+  for (const client of sceneClients) client.write(payload);
+}
+function setSceneCommand(command) {
+  if (['display.scene.home', 'display.scene.set', 'display.focus.set', 'display.focus.clear'].includes(command.action)) clearTimeout(sceneExpiryTimer);
+  if (command.action === 'display.scene.home') { activeSceneCommand = null; displayState.canvas = null; displayState.focus = null; displayState.pageCommands = []; }
+  if (command.action === 'display.scene.set') { activeSceneCommand = command; displayState.focus = command; }
+  if (command.action === 'display.canvas.set') { displayState.canvas = command; displayState.pageCommands = []; }
+  if (command.action === 'display.focus.set') { activeSceneCommand = command; displayState.focus = command; }
+  if (command.action === 'display.focus.clear') { activeSceneCommand = null; displayState.focus = null; }
+  if (command.action.startsWith('display.page.')) displayState.pageCommands = [...displayState.pageCommands, command].slice(-20);
+  publishSceneCommand(command);
+  const duration = command.behavior?.duration_seconds;
+  if (displayState.focus && duration) sceneExpiryTimer = setTimeout(() => {
+    const home = { schema_version: 1, command_id: `expiry-${command.command_id}`, action: displayState.canvas ? 'display.focus.clear' : 'display.scene.home' };
+    activeSceneCommand = null;
+    displayState.focus = null;
+    publishSceneCommand(home);
+  }, duration * 1000);
+}
+function openSceneEvents(req, res) {
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+  res.write(': connected\n\n');
+  sceneClients.add(res);
+  req.on('close', () => sceneClients.delete(res));
+}
+
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon' };
 function staticFile(pathname, res) {
   const dist = join(root, 'dist'); let file = normalize(join(dist, pathname === '/' ? 'index.html' : pathname));
@@ -213,7 +318,18 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/dashboard') return await dashboard(res);
     if (url.pathname === '/api/playback') return await playback(res);
     if (url.pathname === '/api/auth/google/diagnostic') return send(res, 200, authDiagnostic('google'));
+    if (url.pathname === '/api/display/events' && req.method === 'GET') return openSceneEvents(req, res);
+    if (url.pathname === '/api/display/state' && req.method === 'GET') return send(res, 200, { scene: activeSceneCommand, commands: [displayState.canvas, ...displayState.pageCommands, displayState.focus].filter(Boolean) });
+    if (url.pathname === '/api/display/commands' && req.method === 'POST') {
+      if (!isLoopback(req)) return send(res, 403, { error: { code: 'loopback_required', message: 'The prototype command endpoint is available only on this display.' } });
+      let command;
+      try { command = await readJsonBody(req); } catch { return send(res, 400, { error: { code: 'invalid_json', message: 'Command body must be valid JSON.' } }); }
+      const errors = validateDisplayCommand(command);
+      if (errors.length) return send(res, 422, { error: { code: 'invalid_display_command', message: 'The display command was rejected.', fields: errors } });
+      setSceneCommand(command);
+      return send(res, 202, { command_id: command.command_id, status: 'applied', action: command.action });
+    }
     if (parts[0] === 'auth' && ['google', 'spotify'].includes(parts[1])) return parts[2] === 'callback' ? await oauthCallback(parts[1], url, res) : await oauthStart(parts[1], res);
     return staticFile(url.pathname, res);
   } catch (error) { console.error(error); send(res, 500, { error: 'Unexpected display server error.' }); }
-}).listen(port, '0.0.0.0', () => console.log(`Donna Display listening at ${baseUrl}`));
+}).listen(port, '127.0.0.1', () => console.log(`Donna Display listening at ${baseUrl}`));

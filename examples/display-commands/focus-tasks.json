@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "command_id": "example-focus-tasks",
+  "action": "display.scene.set",
+  "scene": { "layout": "fullscreen", "widget": "tasks.list", "variant": "focus" },
+  "behavior": { "duration_seconds": 60, "revert_to": "ambient-home", "transition": "fade" }
+}

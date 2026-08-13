@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "command_id": "example-canvas-dashboard",
+  "action": "display.canvas.set",
+  "canvas": {
+    "widgets": [
+      { "id": "time", "type": "clock", "priority": 90 },
+      { "id": "forecast", "type": "weather.weekly", "priority": 80 },
+      { "id": "agenda", "type": "calendar.agenda", "priority": 70 },
+      { "id": "todos", "type": "tasks.list", "priority": 60 },
+      { "id": "time-secondary", "type": "clock", "preferred_variant": "compact", "priority": 20 }
+    ],
+    "pagination": { "mode": "cycle", "interval_seconds": 15 }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://donna.local/schemas/display-command.v1.schema.json",
+  "title": "Donna display command v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "command_id", "action"],
+  "$defs": {
+    "widget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$" },
+        "type": { "enum": ["clock", "weather.weekly", "calendar.agenda", "tasks.list"] },
+        "title": { "type": "string", "maxLength": 80 },
+        "preferred_variant": { "enum": ["focus", "standard", "compact", "horizontal", "vertical"] },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["cycle", "pinned", "manual"] },
+        "interval_seconds": { "type": "integer", "minimum": 5, "maximum": 300 },
+        "page_id": { "type": "string", "maxLength": 300 }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": { "const": 1 },
+    "command_id": { "type": "string", "minLength": 8, "maxLength": 100 },
+    "action": { "enum": ["display.canvas.set", "display.focus.set", "display.focus.clear", "display.page.pin", "display.page.cycle", "display.page.next", "display.page.previous", "display.scene.set", "display.scene.home"] },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["widgets"],
+      "properties": {
+        "widgets": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "$ref": "#/$defs/widget" } },
+        "pagination": { "$ref": "#/$defs/pagination" }
+      }
+    },
+    "widget": { "$ref": "#/$defs/widget" },
+    "pagination": { "$ref": "#/$defs/pagination" },
+    "scene": {
+      "description": "Deprecated single-focus compatibility shape.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layout", "widget"],
+      "properties": {
+        "layout": { "const": "fullscreen" },
+        "widget": { "enum": ["clock", "weather.weekly", "calendar.agenda", "tasks.list"] },
+        "variant": { "const": "focus" },
+        "title": { "type": "string", "maxLength": 80 }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration_seconds": { "type": "integer", "minimum": 5, "maximum": 3600 },
+        "revert_to": { "enum": ["ambient-home", "canvas"] },
+        "transition": { "enum": ["none", "fade"] }
+      }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "action": { "const": "display.canvas.set" } } }, "then": { "required": ["canvas"] } },
+    { "if": { "properties": { "action": { "const": "display.focus.set" } } }, "then": { "required": ["widget"] } },
+    { "if": { "properties": { "action": { "const": "display.scene.set" } } }, "then": { "required": ["scene"] } }
+  ]
+}

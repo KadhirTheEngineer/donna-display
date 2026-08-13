@@ -61,5 +61,34 @@ Spotify access tokens refresh automatically using the locally stored refresh tok
 - Weather, calendar, and tasks refresh once per minute. Spotify refreshes every five seconds while playing and every two seconds while paused, while track progress advances locally every second. If Spotify rate-limits requests, the display automatically honors its `Retry-After` delay.
 - Navigate with the bottom indicators or keyboard: `1` for Home, `2` for Calendar & Tasks, `3` for Settings, and Left/Right Arrow to move between tabs.
 - The Settings tab includes a locally remembered software brightness control. It dims rendered content but cannot lower the monitor's physical backlight.
+
+## Dynamic canvas prototype
+
+The display now has a widget-matrix layout engine. Donna can request multiple clock, seven-day weather, calendar, and task widgets; the display chooses among predetermined focus, standard, compact, horizontal, and vertical variants, packs readable layouts, and creates additional pages when necessary. Pages can cycle, remain pinned, or use manual navigation. Focus always contains exactly one widget and restores the previous canvas when dismissed.
+
+The command schema is [schemas/display-command.v1.schema.json](schemas/display-command.v1.schema.json); examples live in `examples/display-commands/`. The widget provisioning model, matrix, layout rules, lifecycle, and secure Donna network direction are documented in [docs/display-scenes.md](docs/display-scenes.md).
+
+With the production server running, simulate future Donna commands locally:
+
+```bash
+npm run display:command -- canvas clock weather calendar tasks
+npm run display:command -- focus weather 60
+npm run display:command -- pin
+npm run display:command -- next
+npm run display:command -- cycle 15
+npm run display:command -- clear-focus
+npm run display:command -- home
+```
+
+Focus scenes return to the existing canvas after the requested duration. Press `Esc` to return immediately.
+
+The prototype command endpoint and web server bind only to `127.0.0.1`. It accepts a small allowlist of versioned scene commands, never HTML, CSS, JavaScript, arbitrary URLs, or arbitrary coordinates. A future Donna client connection will feed the same command contract through an authenticated outbound WebSocket; do not expose this prototype endpoint directly to the LAN.
+
+### Scene engine boundary
+
+- Donna selects semantic widget instances, priorities, and canvas behavior.
+- The display owns packing, pagination, variant selection, typography, animations, provider data, loading states, and errors.
+- Each widget has purpose-built size variants rather than simply scaling one component.
+- Unsupported widgets and unknown fields are rejected with stable machine-readable errors.
 - Keep `.env` and `.data/oauth.json` private. Never commit either file.
 - The Google Font is fetched from the internet. For a completely offline deployment, download and self-host DM Mono and Manrope.
